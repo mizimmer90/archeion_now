@@ -154,48 +154,69 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
         is_cached = cached_decision is not None
         
         if is_cached:
-            # Get cached data including reasoning
+            # Get cached data including reasoning, confidence, and estimated_impact
             cached_data = output_manager.get_cached_data(paper.doi)
             cached_reasoning = cached_data.get("reasoning", "Previously assessed (cached)") if cached_data else "Previously assessed (cached)"
+            cached_confidence = cached_data.get("confidence", 1.0) if cached_data else 1.0
+            cached_impact = cached_data.get("estimated_impact", 0.0) if cached_data else 0.0
             
             # Use cached decision
             decision = RelevanceDecision(
                 is_relevant=cached_decision,
-                confidence=1.0,  # High confidence for cached decisions
-                reasoning=cached_reasoning
+                confidence=cached_confidence,
+                reasoning=cached_reasoning,
+                estimated_impact=cached_impact
             )
         else:
             # Check relevance with LLM
             decision = agent.check_relevance(paper)
-            # Save decision to cache with reasoning
-            output_manager.save_decision(paper.doi, decision.is_relevant, decision.reasoning)
+            # Save decision to cache with all metrics
+            output_manager.save_decision(
+                paper.doi, 
+                decision.is_relevant, 
+                decision.reasoning,
+                decision.confidence,
+                decision.estimated_impact
+            )
         
         if decision.is_relevant:
             cache_prefix = "[Cache] " if is_cached else ""
             print(f"\n{cache_prefix}✓ Relevant: {paper.title[:80]}...")
             if not is_cached:
                 print(f"  Confidence: {decision.confidence:.2f}")
+            else:
+                print(f"  Confidence: {decision.confidence:.2f} (cached)")
+            print(f"  Estimated Impact: {decision.estimated_impact:.2f}")
             if decision.reasoning:
                 print(f"  Reasoning: {decision.reasoning[:100]}...")
             
-            # Download and extract PDF if needed
-            full_text = None
-            if config.output.include_pdf:
-                pdf_path = fetcher.download_pdf(paper, config.output.output_dir / "pdfs")
-                if pdf_path:
-                    full_text = extract_text_from_pdf(pdf_path)
-            
-            # Summarize paper
-            print(f"  Summarizing...")
-            summary = agent.summarize_paper(paper, full_text)
-            
-            # Save summary
-            output_path = output_manager.save_summary(summary, paper)
-            print(f"  Saved to: {output_path}")
-            
-            relevant_papers.append(paper)
-            summaries.append(summary)
-            paper_metadatas.append(paper)
+            # Only process PDF and summary if not cached
+            if not is_cached:
+                # Download and extract PDF if needed
+                full_text = None
+                if config.output.include_pdf:
+                    pdf_path = fetcher.download_pdf(paper, config.output.output_dir / "pdfs")
+                    if pdf_path:
+                        full_text = extract_text_from_pdf(pdf_path)
+                
+                # Summarize paper
+                print(f"  Summarizing...")
+                summary = agent.summarize_paper(paper, full_text)
+                
+                # Save summary
+                output_path = output_manager.save_summary(summary, paper)
+                print(f"  Saved to: {output_path}")
+                
+                relevant_papers.append(paper)
+                summaries.append(summary)
+                paper_metadatas.append(paper)
+            else:
+                # For cached papers, skip PDF download and summary generation
+                # (they were already processed in a previous run)
+                print(f"  Using cached assessment (skipping PDF download and summary)")
+                relevant_papers.append(paper)
+                # Note: Don't add to summaries/paper_metadatas since we're skipping summary generation
+                # If summaries were created previously, they'll still exist in the output directory
         else:
             cache_prefix = "[Cache] " if is_cached else ""
             print(f"\n{cache_prefix}✗ Not relevant: {paper.title[:80]}...")

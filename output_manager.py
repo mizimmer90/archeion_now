@@ -206,7 +206,8 @@ class OutputManager:
         
         return self._cache[doi].copy()
     
-    def save_decision(self, doi: Optional[str], is_relevant: bool, reasoning: str = ""):
+    def save_decision(self, doi: Optional[str], is_relevant: bool, reasoning: str = "", 
+                     confidence: float = 0.0, estimated_impact: float = 0.0):
         """
         Save a DOI assessment decision to cache.
         
@@ -214,6 +215,8 @@ class OutputManager:
             doi: DOI string (can be None)
             is_relevant: Whether the paper was accepted (True) or rejected (False)
             reasoning: Justification for the decision
+            confidence: Confidence score for the relevance decision
+            estimated_impact: Estimated impact score for the field at large
         """
         if not doi:
             return
@@ -221,6 +224,8 @@ class OutputManager:
         self._cache[doi] = {
             "status": "accept" if is_relevant else "reject",
             "reasoning": reasoning,
+            "confidence": confidence,
+            "estimated_impact": estimated_impact,
             "timestamp": datetime.now().isoformat()
         }
         self._save_cache()

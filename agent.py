@@ -13,6 +13,7 @@ class RelevanceDecision:
     is_relevant: bool
     confidence: float
     reasoning: str
+    estimated_impact: float = 0.0  # Estimated impact score (0.0-1.0) for the field at large
 
 
 @dataclass
@@ -137,12 +138,21 @@ Paper Abstract:
 Paper Categories: {', '.join(paper.categories)}
 
 Based on the title and abstract, determine if this paper is relevant to the user's interests. 
+Also estimate the paper's potential impact on the research field at large, regardless of personal relevance.
+
 Respond in the following JSON format:
 {{
     "is_relevant": true/false,
     "confidence": 0.0-1.0,
-    "reasoning": "brief explanation of why this paper is or isn't relevant"
+    "reasoning": "brief explanation of why this paper is or isn't relevant",
+    "estimated_impact": 0.0-1.0
 }}
+
+The estimated_impact score should reflect:
+- 0.0-0.3: Incremental work, minor contributions
+- 0.3-0.6: Solid contributions with moderate impact potential
+- 0.6-0.8: Significant contributions likely to influence the field
+- 0.8-1.0: Breakthrough work with transformative potential
 
 Be selective - only mark papers as relevant if they clearly align with the user's interests."""
         
@@ -159,21 +169,24 @@ Be selective - only mark papers as relevant if they clearly align with the user'
                 return RelevanceDecision(
                     is_relevant=result.get("is_relevant", False),
                     confidence=result.get("confidence", 0.0),
-                    reasoning=result.get("reasoning", "")
+                    reasoning=result.get("reasoning", ""),
+                    estimated_impact=result.get("estimated_impact", 0.0)
                 )
             else:
                 # Fallback: assume not relevant if we can't parse
                 return RelevanceDecision(
                     is_relevant=False,
                     confidence=0.0,
-                    reasoning="Could not parse relevance decision"
+                    reasoning="Could not parse relevance decision",
+                    estimated_impact=0.0
                 )
         except Exception as e:
             print(f"Error checking relevance: {e}")
             return RelevanceDecision(
                 is_relevant=False,
                 confidence=0.0,
-                reasoning=f"Error: {str(e)}"
+                reasoning=f"Error: {str(e)}",
+                estimated_impact=0.0
             )
     
     def summarize_paper(self, paper: PaperMetadata, full_text: Optional[str] = None) -> PaperSummary:
