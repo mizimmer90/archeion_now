@@ -13,6 +13,28 @@ An agentic workflow system for automatically discovering, filtering, and summari
 
 ## Installation
 
+### Option 1: Install as a package (Recommended)
+
+1. Clone this repository:
+```bash
+cd archeion_now
+```
+
+2. Install in editable mode:
+```bash
+pip install -e .
+```
+
+This will install all dependencies and make the `archeion_now` command available system-wide.
+
+3. Set up environment variables:
+```bash
+cp .env.example .env
+# Edit .env and add your API keys
+```
+
+### Option 2: Install dependencies only
+
 1. Clone this repository:
 ```bash
 cd archeion_now
@@ -88,15 +110,42 @@ output:
 
 ## Usage
 
-Run the main script:
+### If installed as a package (Option 1):
+
 ```bash
-python main.py
+# Run with default config.yaml and interests.txt
+archeion_now
+
+# Use custom config file
+archeion_now --config custom_config.yaml
+
+# Use custom config and interests files
+archeion_now --config custom_config.yaml --interests custom_interests.txt
+
+# Use custom interests file with default config
+archeion_now --interests my_interests.txt
+
+# Show help
+archeion_now --help
 ```
 
-Or specify a custom config file:
+### If using dependencies only (Option 2):
+
 ```bash
-python main.py custom_config.yaml
+# Run with default config.yaml and interests.txt
+python main.py
+
+# Use custom config file
+python main.py --config custom_config.yaml
+
+# Use custom config and interests files
+python main.py --config custom_config.yaml --interests custom_interests.txt
+
+# Use custom interests file with default config
+python main.py --interests my_interests.txt
 ```
+
+Note: Make sure to set up environment variables (see Installation section).
 
 ## Workflow
 

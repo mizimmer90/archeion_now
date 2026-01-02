@@ -1,7 +1,9 @@
 """Main orchestration script for archeion_now."""
+import argparse
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 from dotenv import load_dotenv
 from tqdm import tqdm
 
@@ -21,17 +23,29 @@ def load_interests(interests_file: Path) -> str:
         return f.read()
 
 
-def main():
-    """Main execution function."""
+def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = None) -> int:
+    """
+    Main execution function.
+    
+    Args:
+        config_path: Path to config.yaml file (defaults to ./config.yaml)
+        interests_file: Path to interests.txt file (overrides config if provided)
+    
+    Returns:
+        Exit code (0 for success, 1 for error)
+    """
     # Load environment variables
     load_dotenv()
     
     # Load configuration
-    config_path = Path("./config.yaml")
-    if len(sys.argv) > 1:
-        config_path = Path(sys.argv[1])
+    if config_path is None:
+        config_path = Path("./config.yaml")
     
     config = load_config(config_path)
+    
+    # Override interests_file if provided via CLI
+    if interests_file is not None:
+        config.interests_file = interests_file
     
     print("=" * 60)
     print("Archeion Now - Arxiv Paper Processing")
@@ -142,6 +156,55 @@ def main():
     return 0
 
 
+def create_cli() -> argparse.ArgumentParser:
+    """Create and configure CLI argument parser."""
+    parser = argparse.ArgumentParser(
+        description="Archeion Now - Automated ArXiv paper processing and summarization",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Run with default config.yaml and interests.txt
+  python main.py
+
+  # Use custom config file
+  python main.py --config custom_config.yaml
+
+  # Use custom config and interests files
+  python main.py --config custom_config.yaml --interests custom_interests.txt
+
+  # Use custom interests file with default config
+  python main.py --interests my_interests.txt
+        """
+    )
+    
+    parser.add_argument(
+        "--config", "-c",
+        type=str,
+        default=None,
+        help="Path to config.yaml file (default: ./config.yaml)"
+    )
+    
+    parser.add_argument(
+        "--interests", "-i",
+        type=str,
+        default=None,
+        help="Path to interests.txt file (overrides config file setting if provided)"
+    )
+    
+    return parser
+
+
+def cli_main():
+    """CLI entry point."""
+    parser = create_cli()
+    args = parser.parse_args()
+    
+    config_path = Path(args.config) if args.config else None
+    interests_file = Path(args.interests) if args.interests else None
+    
+    return main(config_path=config_path, interests_file=interests_file)
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli_main())
 
