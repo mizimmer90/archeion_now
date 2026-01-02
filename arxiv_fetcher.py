@@ -71,13 +71,16 @@ class ArxivFetcher:
             List of PaperMetadata objects
         """
         cutoff_date = datetime.now() - timedelta(days=self.days_back)
+        now_date = datetime.now()
         
         # Build search query: filter by date and categories
         query_parts = []
         
         # Date filter
-        date_str = cutoff_date.strftime("%Y%m%d")
-        query_parts.append(f"submittedDate:[{date_str}* TO *]")
+        # Arxiv date ranges require 12-digit timestamps without wildcards (YYYYMMDDHHMM)
+        date_str = cutoff_date.strftime("%Y%m%d%H%M")
+        now_str = now_date.strftime("%Y%m%d%H%M")
+        query_parts.append(f"submittedDate:[{date_str} TO {now_str}]")
         
         # Category filter
         if self.categories:
@@ -137,4 +140,3 @@ class ArxivFetcher:
         except Exception as e:
             print(f"Error downloading PDF for {paper.arxiv_id}: {e}")
             return None
-
