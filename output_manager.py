@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 from agent import PaperSummary
 from arxiv_fetcher import PaperMetadata
 
@@ -21,6 +21,9 @@ class OutputManager:
         self.output_dir = Path(output_dir)
         self.create_subdirs = create_subdirs
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_file = self.output_dir / "doi_cache.json"
+        self._cache: Dict[str, Dict[str, str]] = {}
+        self._load_cache()
     
     def get_output_path(self, summary: PaperSummary) -> Path:
         """
@@ -145,4 +148,80 @@ class OutputManager:
         
         with open(index_path, 'w', encoding='utf-8') as f:
             f.write(content)
+    
+    def _load_cache(self):
+        """Load DOI cache from file."""
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                    self._cache = json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                print(f"Warning: Could not load DOI cache: {e}")
+                self._cache = {}
+        else:
+            self._cache = {}
+    
+    def _save_cache(self):
+        """Save DOI cache to file."""
+        try:
+            with open(self.cache_file, 'w', encoding='utf-8') as f:
+                json.dump(self._cache, f, indent=2, ensure_ascii=False)
+        except IOError as e:
+            print(f"Warning: Could not save DOI cache: {e}")
+    
+    def is_cached(self, doi: Optional[str]) -> Optional[bool]:
+        """
+        Check if a DOI has been assessed previously.
+        
+        Args:
+            doi: DOI string (can be None)
+            
+        Returns:
+            True if accepted, False if rejected, None if not cached or no DOI
+        """
+        if not doi:
+            return None
+        
+        if doi in self._cache:
+            status = self._cache[doi].get("status", "").lower()
+            if status == "accept":
+                return True
+            elif status == "reject":
+                return False
+        
+        return None
+    
+    def get_cached_data(self, doi: Optional[str]) -> Optional[Dict[str, str]]:
+        """
+        Get full cached data for a DOI.
+        
+        Args:
+            doi: DOI string (can be None)
+            
+        Returns:
+            Dictionary with 'status', 'reasoning', and 'timestamp' keys, or None if not cached
+        """
+        if not doi or doi not in self._cache:
+            return None
+        
+        return self._cache[doi].copy()
+    
+    def save_decision(self, doi: Optional[str], is_relevant: bool, reasoning: str = ""):
+        """
+        Save a DOI assessment decision to cache.
+        
+        Args:
+            doi: DOI string (can be None)
+            is_relevant: Whether the paper was accepted (True) or rejected (False)
+            reasoning: Justification for the decision
+        """
+        if not doi:
+            return
+        
+        self._cache[doi] = {
+            "status": "accept" if is_relevant else "reject",
+            "reasoning": reasoning,
+            "timestamp": datetime.now().isoformat()
+        }
+        self._save_cache()
 

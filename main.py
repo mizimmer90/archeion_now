@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from config import load_config
 from arxiv_fetcher import ArxivFetcher
-from agent import LLMAgent
+from agent import LLMAgent, RelevanceDecision
 from pdf_reader import extract_text_from_pdf
 from output_manager import OutputManager
 
@@ -142,14 +142,41 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
     print("Processing papers...")
     print("-" * 60)
     
+    # Load cache and show stats
+    cached_count = sum(1 for p in papers if output_manager.is_cached(p.doi) is not None)
+    if cached_count > 0:
+        print(f"Found {cached_count} papers with cached assessments")
+    print()
+    
     for paper in tqdm(papers, desc="Processing papers"):
-        # Check relevance
-        decision = agent.check_relevance(paper)
+        # Check cache first
+        cached_decision = output_manager.is_cached(paper.doi)
+        is_cached = cached_decision is not None
+        
+        if is_cached:
+            # Get cached data including reasoning
+            cached_data = output_manager.get_cached_data(paper.doi)
+            cached_reasoning = cached_data.get("reasoning", "Previously assessed (cached)") if cached_data else "Previously assessed (cached)"
+            
+            # Use cached decision
+            decision = RelevanceDecision(
+                is_relevant=cached_decision,
+                confidence=1.0,  # High confidence for cached decisions
+                reasoning=cached_reasoning
+            )
+        else:
+            # Check relevance with LLM
+            decision = agent.check_relevance(paper)
+            # Save decision to cache with reasoning
+            output_manager.save_decision(paper.doi, decision.is_relevant, decision.reasoning)
         
         if decision.is_relevant:
-            print(f"\n✓ Relevant: {paper.title[:80]}...")
-            print(f"  Confidence: {decision.confidence:.2f}")
-            print(f"  Reasoning: {decision.reasoning[:100]}...")
+            cache_prefix = "[Cache] " if is_cached else ""
+            print(f"\n{cache_prefix}✓ Relevant: {paper.title[:80]}...")
+            if not is_cached:
+                print(f"  Confidence: {decision.confidence:.2f}")
+            if decision.reasoning:
+                print(f"  Reasoning: {decision.reasoning[:100]}...")
             
             # Download and extract PDF if needed
             full_text = None
@@ -170,7 +197,8 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
             summaries.append(summary)
             paper_metadatas.append(paper)
         else:
-            print(f"\n✗ Not relevant: {paper.title[:80]}...")
+            cache_prefix = "[Cache] " if is_cached else ""
+            print(f"\n{cache_prefix}✗ Not relevant: {paper.title[:80]}...")
             if decision.reasoning:
                 print(f"  Reason: {decision.reasoning[:100]}...")
     
