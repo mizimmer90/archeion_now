@@ -56,3 +56,6 @@ py-modules = [
     "main",
 ]
 
+[tool.setuptools.package-data]
+"" = ["config.yaml", "interests.txt"]
+
