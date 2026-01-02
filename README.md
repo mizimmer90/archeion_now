@@ -1,0 +1,166 @@
+# Archeion Now
+
+An agentic workflow system for automatically discovering, filtering, and summarizing relevant ArXiv papers based on your research interests.
+
+## Features
+
+- 🔍 Automatically fetches recent papers from ArXiv based on categories and date range
+- 🤖 Uses LLM agents to intelligently filter papers by relevance
+- 📝 Generates structured summaries tailored to your interests
+- 📁 Organizes output with category-based subdirectories
+- 📊 Creates an index of all processed papers
+- ⚙️ Fully configurable via YAML configuration file
+
+## Installation
+
+1. Clone this repository:
+```bash
+cd archeion_now
+```
+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Set up environment variables:
+```bash
+cp .env.example .env
+# Edit .env and add your API keys
+```
+
+You'll need at least one of:
+- `OPENAI_API_KEY` (for OpenAI models like GPT-4)
+- `ANTHROPIC_API_KEY` (for Anthropic models like Claude)
+
+## Configuration
+
+### 1. Interests File
+
+Create or edit `interests.txt` to describe your research interests and desired summary structure. This file should include:
+- Your research interests
+- The structure you want for summaries
+- Any focus areas or specific criteria
+
+Example:
+```
+## Interests
+I am interested in:
+- Agentic AI systems
+- Large language model applications
+- Computer vision
+
+## Summary Structure
+For each relevant paper, please provide:
+1. Key findings
+2. Methodology
+3. Results
+...
+```
+
+### 2. Config File
+
+Edit `config.yaml` to configure:
+- `interests_file`: Path to your interests file
+- `arxiv`: ArXiv search settings (categories, days back, max papers)
+- `llm`: LLM provider and model settings
+- `output`: Output directory and organization settings
+
+Example `config.yaml`:
+```yaml
+interests_file: "./interests.txt"
+arxiv:
+  days_back: 7
+  categories:
+    - cs.AI
+    - cs.LG
+    - cs.CV
+  max_papers: null
+llm:
+  provider: "openai"
+  model: "gpt-4o-mini"
+  temperature: 0.3
+output:
+  output_dir: "./papers"
+  create_subdirs: true
+  include_pdf: false
+```
+
+## Usage
+
+Run the main script:
+```bash
+python main.py
+```
+
+Or specify a custom config file:
+```bash
+python main.py custom_config.yaml
+```
+
+## Workflow
+
+1. **Configuration Loading**: Loads your interests and configuration settings
+2. **Paper Fetching**: Fetches recent papers from ArXiv based on your criteria
+3. **Relevance Filtering**: For each paper, the agent checks if it's relevant based on title/abstract
+4. **Paper Summarization**: For relevant papers, the agent reads the full paper (if PDFs are enabled) and generates a structured summary
+5. **Output Organization**: Summaries are saved with metadata, organized by category, and an index is generated
+
+## Output Structure
+
+The output directory will contain:
+```
+papers/
+├── index.md                    # Index of all papers
+├── category1/
+│   ├── 1234.5678.md           # Markdown summary
+│   └── 1234.5678.json         # JSON metadata
+├── category2/
+│   └── ...
+└── pdfs/                      # PDF files (if enabled)
+    └── ...
+```
+
+Each summary includes:
+- Key findings and contributions
+- Methodology overview
+- Experimental results
+- Relevance to your interests
+- Potential applications
+- Limitations
+- Full metadata (authors, dates, categories, links)
+
+## ArXiv Categories
+
+Common category codes:
+- `cs.AI`: Artificial Intelligence
+- `cs.LG`: Machine Learning
+- `cs.CV`: Computer Vision
+- `cs.CL`: Computation and Language
+- `stat.ML`: Machine Learning (Statistics)
+- `cs.NE`: Neural and Evolutionary Computing
+
+See [ArXiv category taxonomy](https://arxiv.org/category_taxonomy) for full list.
+
+## Tips
+
+1. **Start with a narrow date range**: Begin with 1-3 days back to test the system
+2. **Be specific in interests**: More specific interests lead to better filtering
+3. **Adjust confidence**: The agent provides confidence scores - you can modify the code to filter by confidence if needed
+4. **Category selection**: Choose relevant categories to reduce processing time
+5. **PDF processing**: Enable PDF processing only if you need full paper analysis (slower, more expensive)
+
+## Customization
+
+The codebase is modular and easy to customize:
+- `config.py`: Configuration management
+- `arxiv_fetcher.py`: ArXiv paper fetching
+- `agent.py`: LLM agent for filtering and summarization
+- `pdf_reader.py`: PDF text extraction
+- `output_manager.py`: Output organization
+- `main.py`: Main orchestration
+
+## License
+
+MIT License
+

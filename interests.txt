@@ -1,0 +1,27 @@
+# My Research Interests and Summary Structure
+
+## Interests
+I am interested in:
+- Agentic AI systems and multi-agent workflows
+- Large language model applications and fine-tuning
+- Computer vision and multimodal learning
+- Reinforcement learning and optimization
+- Neural architecture search and model efficiency
+
+## Summary Structure
+For each relevant paper, please provide:
+1. Key findings and contributions
+2. Methodology overview
+3. Experimental results (if applicable)
+4. Relevance to my interests
+5. Potential applications or follow-up directions
+6. Critical limitations or concerns
+
+## Focus Areas
+Pay special attention to papers that:
+- Present novel agentic architectures or workflows
+- Demonstrate practical applications of LLMs
+- Introduce new techniques for model efficiency
+- Combine multiple modalities (text, vision, etc.)
+- Show strong empirical results
+
