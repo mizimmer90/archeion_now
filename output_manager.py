@@ -162,10 +162,33 @@ class OutputManager:
             self._cache = {}
     
     def _save_cache(self):
-        """Save DOI cache to file."""
+        """Save DOI cache to file with spacing between entries for readability."""
         try:
             with open(self.cache_file, 'w', encoding='utf-8') as f:
-                json.dump(self._cache, f, indent=2, ensure_ascii=False)
+                f.write('{\n')
+                entries = list(self._cache.items())
+                for i, (doi, data) in enumerate(entries):
+                    # Write the DOI key and opening brace
+                    f.write(f'  {json.dumps(doi, ensure_ascii=False)}: {{\n')
+                    
+                    # Write each field in the entry
+                    fields = list(data.items())
+                    for j, (key, value) in enumerate(fields):
+                        comma = ',' if j < len(fields) - 1 else ''
+                        value_str = json.dumps(value, ensure_ascii=False)
+                        f.write(f'    {json.dumps(key, ensure_ascii=False)}: {value_str}{comma}\n')
+                    
+                    # Close the entry
+                    f.write('  }')
+                    if i < len(entries) - 1:
+                        f.write(',')
+                    f.write('\n')
+                    
+                    # Add blank line between entries (except after the last one)
+                    if i < len(entries) - 1:
+                        f.write('\n')
+                
+                f.write('}\n')
         except IOError as e:
             print(f"Warning: Could not save DOI cache: {e}")
     
@@ -207,7 +230,7 @@ class OutputManager:
         return self._cache[doi].copy()
     
     def save_decision(self, doi: Optional[str], is_relevant: bool, reasoning: str = "", 
-                     confidence: float = 0.0, estimated_impact: float = 0.0):
+                     confidence: float = 0.0, estimated_impact: float = 0.0, title: str = ""):
         """
         Save a DOI assessment decision to cache.
         
@@ -217,12 +240,14 @@ class OutputManager:
             reasoning: Justification for the decision
             confidence: Confidence score for the relevance decision
             estimated_impact: Estimated impact score for the field at large
+            title: Paper title
         """
         if not doi:
             return
         
         self._cache[doi] = {
             "status": "accept" if is_relevant else "reject",
+            "title": title,
             "reasoning": reasoning,
             "confidence": confidence,
             "estimated_impact": estimated_impact,

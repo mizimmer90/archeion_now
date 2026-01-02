@@ -176,7 +176,8 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
                 decision.is_relevant, 
                 decision.reasoning,
                 decision.confidence,
-                decision.estimated_impact
+                decision.estimated_impact,
+                paper.title
             )
         
         if decision.is_relevant:
