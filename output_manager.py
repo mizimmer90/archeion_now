@@ -59,6 +59,7 @@ class OutputManager:
         content = summary.to_markdown()
         
         # Add metadata section at the end
+        doi_line = f"**DOI:** {paper_metadata.doi}\n\n" if paper_metadata.doi else ""
         metadata_section = f"""
 ---
 
@@ -70,7 +71,7 @@ class OutputManager:
 
 **Categories:** {', '.join(paper_metadata.categories)}
 
-**PDF URL:** {paper_metadata.pdf_url}
+{doi_line}**PDF URL:** {paper_metadata.pdf_url}
 
 **ArXiv Entry:** {paper_metadata.entry_id}
 

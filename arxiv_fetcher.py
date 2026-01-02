@@ -18,6 +18,7 @@ class PaperMetadata:
     published: datetime
     pdf_url: str
     entry_id: str
+    doi: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
@@ -29,22 +30,42 @@ class PaperMetadata:
             'categories': self.categories,
             'published': self.published.isoformat(),
             'pdf_url': self.pdf_url,
-            'entry_id': self.entry_id
+            'entry_id': self.entry_id,
+            'doi': self.doi
         }
+
+    @staticmethod
+    def _fallback_arxiv_doi(arxiv_id: str) -> str:
+        """
+        ArXiv mints DOIs for all e-prints via DataCite using the
+        pattern 10.48550/arXiv.<id_without_version>. Use this as a
+        deterministic fallback when the API omits the DOI field.
+        """
+        base_id = arxiv_id.split('v')[0]
+        return f"10.48550/arXiv.{base_id}"
 
     @classmethod
     def from_arxiv_entry(cls, entry: arxiv.Result) -> "PaperMetadata":
         """Create PaperMetadata from arxiv.Result."""
+        raw_id = entry.entry_id.split('/')[-1]
+        doi = getattr(entry, "doi", None) or cls._fallback_arxiv_doi(raw_id)
         return cls(
-            arxiv_id=entry.entry_id.split('/')[-1],
+            arxiv_id=raw_id,
             title=entry.title,
             authors=[str(author) for author in entry.authors],
             abstract=entry.summary,
             categories=entry.categories,
             published=entry.published,
             pdf_url=entry.pdf_url,
-            entry_id=entry.entry_id
+            entry_id=entry.entry_id,
+            doi=doi
         )
+    
+    def __repr__(self) -> str:
+        """String representation showing title, authors, and DOI."""
+        authors_str = ', '.join(self.authors) if self.authors else 'Unknown authors'
+        doi_str = self.doi if self.doi else 'No DOI'
+        return f"PaperMetadata(title='{self.title}', authors='{authors_str}', doi='{doi_str}')"
 
 
 class ArxivFetcher:
