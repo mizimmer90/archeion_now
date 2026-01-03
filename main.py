@@ -13,6 +13,9 @@ from agent import LLMAgent, RelevanceDecision
 from pdf_reader import extract_text_from_pdf
 from output_manager import OutputManager
 
+# Relevance threshold for determining if a paper should be processed
+RELEVANCE_THRESHOLD = 0.5
+
 
 def get_package_dir() -> Path:
     """Get the directory where the package files are installed."""
@@ -154,18 +157,25 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
         is_cached = cached_decision is not None
         
         if is_cached:
-            # Get cached data including reasoning, confidence, and estimated_impact
+            # Get cached data including reasoning, confidence, impact, and relevance
             cached_data = output_manager.get_cached_data(paper.doi)
             cached_reasoning = cached_data.get("reasoning", "Previously assessed (cached)") if cached_data else "Previously assessed (cached)"
             cached_confidence = cached_data.get("confidence", 1.0) if cached_data else 1.0
-            cached_impact = cached_data.get("estimated_impact", 0.0) if cached_data else 0.0
+            # Support both new 'impact' and legacy 'estimated_impact' keys
+            cached_impact = cached_data.get("impact", cached_data.get("estimated_impact", 0.0)) if cached_data else 0.0
+            # If relevance is not in cache, infer from status (backward compatibility)
+            if cached_data and "relevance" in cached_data:
+                cached_relevance = cached_data.get("relevance", 0.0)
+            else:
+                # Backward compatibility: infer relevance from cached decision (0.0 or 1.0)
+                cached_relevance = 1.0 if cached_decision else 0.0
             
             # Use cached decision
             decision = RelevanceDecision(
-                is_relevant=cached_decision,
+                relevance=cached_relevance,
                 confidence=cached_confidence,
                 reasoning=cached_reasoning,
-                estimated_impact=cached_impact
+                impact=cached_impact
             )
         else:
             # Check relevance with LLM
@@ -173,21 +183,24 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
             # Save decision to cache with all metrics
             output_manager.save_decision(
                 paper.doi, 
-                decision.is_relevant, 
+                decision.relevance, 
                 decision.reasoning,
                 decision.confidence,
-                decision.estimated_impact,
-                paper.title
+                decision.impact,
+                paper.title,
+                relevance_threshold=RELEVANCE_THRESHOLD
             )
         
-        if decision.is_relevant:
+        # Check if paper is relevant based on threshold
+        if decision.relevance >= RELEVANCE_THRESHOLD:
             cache_prefix = "[Cache] " if is_cached else ""
             print(f"\n{cache_prefix}✓ Relevant: {paper.title[:80]}...")
+            print(f"  Relevance: {decision.relevance:.2f}")
             if not is_cached:
                 print(f"  Confidence: {decision.confidence:.2f}")
             else:
                 print(f"  Confidence: {decision.confidence:.2f} (cached)")
-            print(f"  Estimated Impact: {decision.estimated_impact:.2f}")
+            print(f"  Impact: {decision.impact:.2f}")
             if decision.reasoning:
                 print(f"  Reasoning: {decision.reasoning[:100]}...")
             
@@ -209,22 +222,24 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
                 final_decision = agent.recheck_relevance_after_summary(paper, summary, full_text)
                 
                 # Display re-evaluation results
+                print(f"  Final Relevance: {final_decision.relevance:.2f}")
                 print(f"  Final Confidence: {final_decision.confidence:.2f}")
-                print(f"  Final Estimated Impact: {final_decision.estimated_impact:.2f}")
+                print(f"  Final Impact: {final_decision.impact:.2f}")
                 if final_decision.reasoning:
                     print(f"  Final Reasoning: {final_decision.reasoning[:100]}...")
                 
                 # Check if paper should still be considered relevant after full review
-                if not final_decision.is_relevant:
-                    print(f"  ✗ Paper rejected after full review - not relevant")
+                if final_decision.relevance < RELEVANCE_THRESHOLD:
+                    print(f"  ✗ Paper rejected after full review - relevance {final_decision.relevance:.2f} below threshold {RELEVANCE_THRESHOLD}")
                     # Update cache with the final decision (rejected)
                     output_manager.save_decision(
                         paper.doi, 
-                        final_decision.is_relevant, 
+                        final_decision.relevance, 
                         final_decision.reasoning,
                         final_decision.confidence,
-                        final_decision.estimated_impact,
-                        paper.title
+                        final_decision.impact,
+                        paper.title,
+                        relevance_threshold=RELEVANCE_THRESHOLD
                     )
                 else:
                     # Paper is still relevant after full review
@@ -236,11 +251,12 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
                     # Update cache with the final decision (approved)
                     output_manager.save_decision(
                         paper.doi, 
-                        final_decision.is_relevant, 
+                        final_decision.relevance, 
                         final_decision.reasoning,
                         final_decision.confidence,
-                        final_decision.estimated_impact,
-                        paper.title
+                        final_decision.impact,
+                        paper.title,
+                        relevance_threshold=RELEVANCE_THRESHOLD
                     )
                     
                     relevant_papers.append(paper)
@@ -256,6 +272,7 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
         else:
             cache_prefix = "[Cache] " if is_cached else ""
             print(f"\n{cache_prefix}✗ Not relevant: {paper.title[:80]}...")
+            print(f"  Relevance: {decision.relevance:.2f} (threshold: {RELEVANCE_THRESHOLD})")
             if decision.reasoning:
                 print(f"  Reason: {decision.reasoning[:100]}...")
     

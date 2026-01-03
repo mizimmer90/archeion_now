@@ -222,35 +222,41 @@ class OutputManager:
             doi: DOI string (can be None)
             
         Returns:
-            Dictionary with 'status', 'reasoning', and 'timestamp' keys, or None if not cached
+            Dictionary with 'status', 'reasoning', 'relevance', 'confidence', 'impact', and 'timestamp' keys, 
+            or None if not cached. May also contain legacy 'estimated_impact' key for backward compatibility.
         """
         if not doi or doi not in self._cache:
             return None
         
         return self._cache[doi].copy()
     
-    def save_decision(self, doi: Optional[str], is_relevant: bool, reasoning: str = "", 
-                     confidence: float = 0.0, estimated_impact: float = 0.0, title: str = ""):
+    def save_decision(self, doi: Optional[str], relevance: float, reasoning: str = "", 
+                     confidence: float = 0.0, impact: float = 0.0, title: str = "", relevance_threshold: float = 0.5):
         """
         Save a DOI assessment decision to cache.
         
         Args:
             doi: DOI string (can be None)
-            is_relevant: Whether the paper was accepted (True) or rejected (False)
+            relevance: Relevance score (0.0-1.0) indicating alignment with user interests
             reasoning: Justification for the decision
-            confidence: Confidence score for the relevance decision
-            estimated_impact: Estimated impact score for the field at large
+            confidence: Confidence score for the relevance assessment (0.0-1.0)
+            impact: Estimated impact score for the field at large (0.0-1.0)
             title: Paper title
+            relevance_threshold: Threshold for determining accept/reject (default 0.5)
         """
         if not doi:
             return
         
+        # Determine accept/reject status based on relevance threshold
+        is_accepted = relevance >= relevance_threshold
+        
         self._cache[doi] = {
-            "status": "accept" if is_relevant else "reject",
+            "status": "accept" if is_accepted else "reject",
             "title": title,
             "reasoning": reasoning,
+            "relevance": relevance,
             "confidence": confidence,
-            "estimated_impact": estimated_impact,
+            "impact": impact,
             "timestamp": datetime.now().isoformat()
         }
         self._save_cache()
