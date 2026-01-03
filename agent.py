@@ -189,6 +189,106 @@ Be selective - only mark papers as relevant if they clearly align with the user'
                 estimated_impact=0.0
             )
     
+    def recheck_relevance_after_summary(self, paper: PaperMetadata, summary: PaperSummary, full_text: Optional[str] = None) -> RelevanceDecision:
+        """
+        Re-check relevance after reading the full paper and generating summary.
+        This provides a more accurate assessment based on the complete paper content.
+        
+        Args:
+            paper: PaperMetadata object
+            summary: PaperSummary object with the generated summary
+            full_text: Optional full text of the paper
+            
+        Returns:
+            RelevanceDecision object with updated metrics
+        """
+        # Build content for evaluation - use summary fields and full text if available
+        content_to_evaluate = f"""Title: {paper.title}
+
+Abstract:
+{paper.abstract}
+
+Key Findings: {summary.key_findings}
+
+Methodology: {summary.methodology}
+
+Results: {summary.results}
+
+Relevance: {summary.relevance}
+
+Limitations: {summary.limitations}"""
+        
+        if full_text:
+            # Include a portion of full text for context
+            content_to_evaluate += f"\n\nFull Paper Excerpt (first 10000 chars):\n{full_text[:10000]}"
+        
+        prompt = f"""You are an AI assistant helping to filter research papers based on user interests.
+
+User Interests and Criteria:
+{self.interests}
+
+Paper Categories: {', '.join(paper.categories)}
+
+You have now read the ENTIRE paper and generated a summary. Based on the complete paper content (not just the abstract), re-evaluate:
+1. Is this paper relevant to the user's interests?
+2. Your confidence in this assessment (which should be higher now that you've read the full paper)
+3. The paper's estimated impact on the research field at large
+
+Complete Paper Content and Summary:
+{content_to_evaluate}
+
+Based on the FULL paper content, determine if this paper is relevant to the user's interests.
+Also re-estimate the paper's potential impact on the research field at large, regardless of personal relevance.
+
+Respond in the following JSON format:
+{{
+    "is_relevant": true/false,
+    "confidence": 0.0-1.0,
+    "reasoning": "brief explanation of why this paper is or isn't relevant based on the full content",
+    "estimated_impact": 0.0-1.0
+}}
+
+The estimated_impact score should reflect:
+- 0.0-0.3: Incremental work, minor contributions
+- 0.3-0.6: Solid contributions with moderate impact potential
+- 0.6-0.8: Significant contributions likely to influence the field
+- 0.8-1.0: Breakthrough work with transformative potential
+
+Be selective - only mark papers as relevant if they clearly align with the user's interests after reading the complete paper."""
+        
+        try:
+            response = self._call_llm(prompt, system_prompt="You are a helpful research assistant.")
+            # Parse JSON response
+            import json
+            # Try to extract JSON from response (in case there's extra text)
+            start_idx = response.find('{')
+            end_idx = response.rfind('}') + 1
+            if start_idx != -1 and end_idx > start_idx:
+                json_str = response[start_idx:end_idx]
+                result = json.loads(json_str)
+                return RelevanceDecision(
+                    is_relevant=result.get("is_relevant", False),
+                    confidence=result.get("confidence", 0.0),
+                    reasoning=result.get("reasoning", ""),
+                    estimated_impact=result.get("estimated_impact", 0.0)
+                )
+            else:
+                # Fallback: assume not relevant if we can't parse
+                return RelevanceDecision(
+                    is_relevant=False,
+                    confidence=0.0,
+                    reasoning="Could not parse relevance decision after full paper review",
+                    estimated_impact=0.0
+                )
+        except Exception as e:
+            print(f"Error rechecking relevance after summary: {e}")
+            return RelevanceDecision(
+                is_relevant=False,
+                confidence=0.0,
+                reasoning=f"Error: {str(e)}",
+                estimated_impact=0.0
+            )
+    
     def summarize_paper(self, paper: PaperMetadata, full_text: Optional[str] = None) -> PaperSummary:
         """
         Summarize a paper based on user's summary structure.

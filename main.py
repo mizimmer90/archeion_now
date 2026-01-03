@@ -204,13 +204,48 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
                 print(f"  Summarizing...")
                 summary = agent.summarize_paper(paper, full_text)
                 
-                # Save summary
-                output_path = output_manager.save_summary(summary, paper)
-                print(f"  Saved to: {output_path}")
+                # Re-evaluate relevance after reading the full paper
+                print(f"  Re-evaluating relevance after reading full paper...")
+                final_decision = agent.recheck_relevance_after_summary(paper, summary, full_text)
                 
-                relevant_papers.append(paper)
-                summaries.append(summary)
-                paper_metadatas.append(paper)
+                # Display re-evaluation results
+                print(f"  Final Confidence: {final_decision.confidence:.2f}")
+                print(f"  Final Estimated Impact: {final_decision.estimated_impact:.2f}")
+                if final_decision.reasoning:
+                    print(f"  Final Reasoning: {final_decision.reasoning[:100]}...")
+                
+                # Check if paper should still be considered relevant after full review
+                if not final_decision.is_relevant:
+                    print(f"  ✗ Paper rejected after full review - not relevant")
+                    # Update cache with the final decision (rejected)
+                    output_manager.save_decision(
+                        paper.doi, 
+                        final_decision.is_relevant, 
+                        final_decision.reasoning,
+                        final_decision.confidence,
+                        final_decision.estimated_impact,
+                        paper.title
+                    )
+                else:
+                    # Paper is still relevant after full review
+                    print(f"  ✓ Paper confirmed as relevant after full review")
+                    # Save summary
+                    output_path = output_manager.save_summary(summary, paper)
+                    print(f"  Saved to: {output_path}")
+                    
+                    # Update cache with the final decision (approved)
+                    output_manager.save_decision(
+                        paper.doi, 
+                        final_decision.is_relevant, 
+                        final_decision.reasoning,
+                        final_decision.confidence,
+                        final_decision.estimated_impact,
+                        paper.title
+                    )
+                    
+                    relevant_papers.append(paper)
+                    summaries.append(summary)
+                    paper_metadatas.append(paper)
             else:
                 # For cached papers, skip PDF download and summary generation
                 # (they were already processed in a previous run)
