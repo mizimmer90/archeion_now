@@ -1,4 +1,5 @@
 interests_file: "./interests.txt"
+relevance_threshold: 0.5
 arxiv:
   days_back: 7
   categories:
@@ -6,6 +7,8 @@ arxiv:
     - cs.LG
     - cs.CV
     - stat.ML
+    - physics.bio-ph
+    - physics.chem-ph
   max_papers: null
 llm:
   provider: "openai"

@@ -133,6 +133,66 @@ class ArxivFetcher:
         print(f"Fetched {len(papers)} papers")
         return papers
     
+    def fetch_papers_by_doi(self, dois: List[str]) -> List[PaperMetadata]:
+        """
+        Fetch papers from arxiv by DOI identifiers.
+        
+        Args:
+            dois: List of DOI strings (can be full DOIs or arxiv IDs)
+            
+        Returns:
+            List of PaperMetadata objects
+        """
+        papers = []
+        
+        for doi in dois:
+            try:
+                # Try to extract arxiv ID from DOI if it's an arxiv DOI
+                # Arxiv DOIs follow pattern: 10.48550/arXiv.XXXX.XXXXX
+                arxiv_id = None
+                if "10.48550/arXiv." in doi:
+                    arxiv_id = doi.replace("10.48550/arXiv.", "")
+                elif doi.startswith("arXiv:"):
+                    arxiv_id = doi.replace("arXiv:", "")
+                elif not doi.startswith("10."):
+                    # Might be an arxiv ID directly (e.g., "2301.12345" or "2301.12345v1")
+                    # Check if it looks like an arxiv ID (YYYY.NNNNN format)
+                    import re
+                    if re.match(r'^\d{4}\.\d{4,5}(v\d+)?$', doi):
+                        arxiv_id = doi
+                
+                # If we have an arxiv_id, try to fetch by ID
+                if arxiv_id:
+                    # Remove version suffix if present
+                    base_id = arxiv_id.split('v')[0]
+                    try:
+                        search = arxiv.Search(id_list=[base_id])
+                        results = list(search.results())
+                        if results:
+                            papers.append(PaperMetadata.from_arxiv_entry(results[0]))
+                            continue
+                    except Exception as e:
+                        print(f"Warning: Could not fetch by arxiv ID {base_id}: {e}")
+                
+                # If that didn't work, try searching by DOI
+                # Note: arxiv search doesn't directly support DOI search, so we'll try
+                # searching for the DOI string in the metadata
+                try:
+                    search = arxiv.Search(query=f'doi:"{doi}"', max_results=1)
+                    results = list(search.results())
+                    if results:
+                        papers.append(PaperMetadata.from_arxiv_entry(results[0]))
+                        continue
+                except Exception:
+                    pass
+                
+                # If still not found, print warning
+                print(f"Warning: Could not find paper with DOI/ID: {doi}")
+            except Exception as e:
+                print(f"Error fetching paper with DOI/ID {doi}: {e}")
+        
+        return papers
+    
     def download_pdf(self, paper: PaperMetadata, output_dir: Path) -> Optional[Path]:
         """
         Download PDF for a paper.

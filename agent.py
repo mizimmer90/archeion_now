@@ -10,10 +10,10 @@ from arxiv_fetcher import PaperMetadata
 @dataclass
 class RelevanceDecision:
     """Result of relevance checking."""
-    is_relevant: bool
-    confidence: float
+    relevance: float  # Estimated relevance to user interests (0.0-1.0)
+    confidence: float  # Confidence in the relevance assessment (0.0-1.0)
     reasoning: str
-    estimated_impact: float = 0.0  # Estimated impact score (0.0-1.0) for the field at large
+    impact: float = 0.0  # Estimated impact score (0.0-1.0) for the field at large
 
 
 @dataclass
@@ -137,24 +137,34 @@ Paper Abstract:
 
 Paper Categories: {', '.join(paper.categories)}
 
-Based on the title and abstract, determine if this paper is relevant to the user's interests. 
-Also estimate the paper's potential impact on the research field at large, regardless of personal relevance.
+Based on the title and abstract, evaluate:
+1. The paper's relevance to the user's interests (0.0-1.0)
+2. Your confidence in this relevance assessment (0.0-1.0)
+3. The paper's potential impact on the research field at large, regardless of personal relevance (0.0-1.0)
 
 Respond in the following JSON format:
 {{
-    "is_relevant": true/false,
+    "relevance": 0.0-1.0,
     "confidence": 0.0-1.0,
-    "reasoning": "brief explanation of why this paper is or isn't relevant",
-    "estimated_impact": 0.0-1.0
+    "reasoning": "brief explanation of the relevance assessment",
+    "impact": 0.0-1.0
 }}
 
-The estimated_impact score should reflect:
+The relevance score should reflect how well the paper aligns with the user's interests:
+- 0.0-0.3: Low relevance, minimal alignment
+- 0.3-0.6: Moderate relevance, some alignment
+- 0.6-0.8: High relevance, strong alignment
+- 0.8-1.0: Very high relevance, excellent alignment
+
+The confidence score reflects how certain you are about the relevance assessment:
+- High confidence: Clear alignment (or lack thereof) with user interests
+- Low confidence: Unclear or ambiguous alignment
+
+The impact score should reflect:
 - 0.0-0.3: Incremental work, minor contributions
 - 0.3-0.6: Solid contributions with moderate impact potential
 - 0.6-0.8: Significant contributions likely to influence the field
-- 0.8-1.0: Breakthrough work with transformative potential
-
-Be selective - only mark papers as relevant if they clearly align with the user's interests."""
+- 0.8-1.0: Breakthrough work with transformative potential"""
         
         try:
             response = self._call_llm(prompt, system_prompt="You are a helpful research assistant.")
@@ -167,26 +177,26 @@ Be selective - only mark papers as relevant if they clearly align with the user'
                 json_str = response[start_idx:end_idx]
                 result = json.loads(json_str)
                 return RelevanceDecision(
-                    is_relevant=result.get("is_relevant", False),
+                    relevance=result.get("relevance", 0.0),
                     confidence=result.get("confidence", 0.0),
                     reasoning=result.get("reasoning", ""),
-                    estimated_impact=result.get("estimated_impact", 0.0)
+                    impact=result.get("impact", 0.0)
                 )
             else:
                 # Fallback: assume not relevant if we can't parse
                 return RelevanceDecision(
-                    is_relevant=False,
+                    relevance=0.0,
                     confidence=0.0,
                     reasoning="Could not parse relevance decision",
-                    estimated_impact=0.0
+                    impact=0.0
                 )
         except Exception as e:
             print(f"Error checking relevance: {e}")
             return RelevanceDecision(
-                is_relevant=False,
+                relevance=0.0,
                 confidence=0.0,
                 reasoning=f"Error: {str(e)}",
-                estimated_impact=0.0
+                impact=0.0
             )
     
     def recheck_relevance_after_summary(self, paper: PaperMetadata, summary: PaperSummary, full_text: Optional[str] = None) -> RelevanceDecision:
@@ -230,31 +240,38 @@ User Interests and Criteria:
 Paper Categories: {', '.join(paper.categories)}
 
 You have now read the ENTIRE paper and generated a summary. Based on the complete paper content (not just the abstract), re-evaluate:
-1. Is this paper relevant to the user's interests?
-2. Your confidence in this assessment (which should be higher now that you've read the full paper)
-3. The paper's estimated impact on the research field at large
+1. The paper's relevance to the user's interests (0.0-1.0) - this should be more accurate now that you've read the full paper
+2. Your confidence in this relevance assessment (0.0-1.0) - this should be higher now that you've read the full paper
+3. The paper's potential impact on the research field at large (0.0-1.0)
 
 Complete Paper Content and Summary:
 {content_to_evaluate}
 
-Based on the FULL paper content, determine if this paper is relevant to the user's interests.
-Also re-estimate the paper's potential impact on the research field at large, regardless of personal relevance.
+Based on the FULL paper content, evaluate the relevance, your confidence in that assessment, and the paper's impact.
 
 Respond in the following JSON format:
 {{
-    "is_relevant": true/false,
+    "relevance": 0.0-1.0,
     "confidence": 0.0-1.0,
-    "reasoning": "brief explanation of why this paper is or isn't relevant based on the full content",
-    "estimated_impact": 0.0-1.0
+    "reasoning": "brief explanation of the relevance assessment based on the full content",
+    "impact": 0.0-1.0
 }}
 
-The estimated_impact score should reflect:
+The relevance score should reflect how well the paper aligns with the user's interests:
+- 0.0-0.3: Low relevance, minimal alignment
+- 0.3-0.6: Moderate relevance, some alignment
+- 0.6-0.8: High relevance, strong alignment
+- 0.8-1.0: Very high relevance, excellent alignment
+
+The confidence score reflects how certain you are about the relevance assessment:
+- High confidence: Clear alignment (or lack thereof) with user interests based on full paper
+- Low confidence: Unclear or ambiguous alignment even after reading full paper
+
+The impact score should reflect:
 - 0.0-0.3: Incremental work, minor contributions
 - 0.3-0.6: Solid contributions with moderate impact potential
 - 0.6-0.8: Significant contributions likely to influence the field
-- 0.8-1.0: Breakthrough work with transformative potential
-
-Be selective - only mark papers as relevant if they clearly align with the user's interests after reading the complete paper."""
+- 0.8-1.0: Breakthrough work with transformative potential"""
         
         try:
             response = self._call_llm(prompt, system_prompt="You are a helpful research assistant.")
@@ -267,26 +284,26 @@ Be selective - only mark papers as relevant if they clearly align with the user'
                 json_str = response[start_idx:end_idx]
                 result = json.loads(json_str)
                 return RelevanceDecision(
-                    is_relevant=result.get("is_relevant", False),
+                    relevance=result.get("relevance", 0.0),
                     confidence=result.get("confidence", 0.0),
                     reasoning=result.get("reasoning", ""),
-                    estimated_impact=result.get("estimated_impact", 0.0)
+                    impact=result.get("impact", 0.0)
                 )
             else:
                 # Fallback: assume not relevant if we can't parse
                 return RelevanceDecision(
-                    is_relevant=False,
+                    relevance=0.0,
                     confidence=0.0,
                     reasoning="Could not parse relevance decision after full paper review",
-                    estimated_impact=0.0
+                    impact=0.0
                 )
         except Exception as e:
             print(f"Error rechecking relevance after summary: {e}")
             return RelevanceDecision(
-                is_relevant=False,
+                relevance=0.0,
                 confidence=0.0,
                 reasoning=f"Error: {str(e)}",
-                estimated_impact=0.0
+                impact=0.0
             )
     
     def summarize_paper(self, paper: PaperMetadata, full_text: Optional[str] = None) -> PaperSummary:

@@ -33,6 +33,7 @@ class OutputConfig(BaseModel):
 class Config(BaseModel):
     """Main configuration model."""
     interests_file: Path = Field(default=Path("./interests.txt"), description="Path to interests/summary structure file")
+    relevance_threshold: float = Field(default=0.5, description="Relevance threshold for determining if a paper should be processed (0.0-1.0)")
     arxiv: ArxivConfig = Field(default_factory=ArxivConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     output: OutputConfig = Field(default_factory=OutputConfig)

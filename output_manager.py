@@ -231,7 +231,8 @@ class OutputManager:
         return self._cache[doi].copy()
     
     def save_decision(self, doi: Optional[str], relevance: float, reasoning: str = "", 
-                     confidence: float = 0.0, impact: float = 0.0, title: str = "", relevance_threshold: float = 0.5):
+                     confidence: float = 0.0, impact: float = 0.0, title: str = "", 
+                     relevance_threshold: float = 0.5, test_label: Optional[str] = None):
         """
         Save a DOI assessment decision to cache.
         
@@ -243,6 +244,7 @@ class OutputManager:
             impact: Estimated impact score for the field at large (0.0-1.0)
             title: Paper title
             relevance_threshold: Threshold for determining accept/reject (default 0.5)
+            test_label: Optional test label ("positive" or "negative") for testing mode
         """
         if not doi:
             return
@@ -250,7 +252,7 @@ class OutputManager:
         # Determine accept/reject status based on relevance threshold
         is_accepted = relevance >= relevance_threshold
         
-        self._cache[doi] = {
+        cache_entry = {
             "status": "accept" if is_accepted else "reject",
             "title": title,
             "reasoning": reasoning,
@@ -259,5 +261,11 @@ class OutputManager:
             "impact": impact,
             "timestamp": datetime.now().isoformat()
         }
+        
+        # Add test label if provided
+        if test_label:
+            cache_entry["test_label"] = test_label
+        
+        self._cache[doi] = cache_entry
         self._save_cache()
 
