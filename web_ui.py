@@ -1,7 +1,6 @@
 """Web UI for archeion_now using Flask."""
 import os
 import json
-import yaml
 import threading
 import sys
 import io
@@ -11,8 +10,7 @@ from typing import Optional, Dict, List
 from datetime import datetime
 
 # Import main processing functions
-from config import load_config, Config
-from main import main as run_main, get_default_config_path
+from main import main as run_main
 
 # Get the directory where this module is located
 _MODULE_DIR = Path(__file__).parent.absolute()
@@ -21,8 +19,8 @@ _TEMPLATES_DIR = _MODULE_DIR / 'templates'
 app = Flask(__name__, template_folder=str(_TEMPLATES_DIR))
 app.config['SECRET_KEY'] = os.urandom(24)
 
-# Configuration storage
-UI_CONFIG_FILE = Path.home() / '.archeion_now_ui_config.json'
+# Configuration storage - unified config file
+CONFIG_FILE = Path.home() / '.archeion_now_config.json'
 
 # Job status storage (in-memory for now)
 job_status = {
@@ -34,59 +32,67 @@ job_status = {
 job_lock = threading.Lock()
 
 
-def load_ui_config() -> Dict:
-    """Load UI configuration."""
-    if UI_CONFIG_FILE.exists():
+def get_default_config() -> Dict:
+    """Get default configuration values (matching config.yaml structure)."""
+    return {
+        'papers_dir': './papers',
+        'interests_file': './interests.txt',
+        'relevance_threshold': 0.5,
+        'arxiv': {
+            'days_back': 7,
+            'categories': ['cs.AI', 'cs.LG', 'cs.CV', 'stat.ML', 'physics.bio-ph', 'physics.chem-ph'],
+            'max_papers': None
+        },
+        'llm': {
+            'provider': 'openai',
+            'model': 'gpt-4o-mini',
+            'temperature': 0.3
+        },
+        'output': {
+            'create_subdirs': True,
+            'include_pdf': False
+        }
+    }
+
+
+def load_config() -> Dict:
+    """Load unified configuration, merging with defaults."""
+    defaults = get_default_config()
+    
+    if CONFIG_FILE.exists():
         try:
-            with open(UI_CONFIG_FILE, 'r') as f:
-                return json.load(f)
+            with open(CONFIG_FILE, 'r') as f:
+                user_config = json.load(f)
+            # Merge with defaults (user config takes precedence)
+            config = {**defaults, **user_config}
+            # Deep merge for nested dicts
+            if 'arxiv' in user_config:
+                config['arxiv'] = {**defaults['arxiv'], **user_config['arxiv']}
+            if 'llm' in user_config:
+                config['llm'] = {**defaults['llm'], **user_config['llm']}
+            if 'output' in user_config:
+                config['output'] = {**defaults['output'], **user_config['output']}
+            return config
         except Exception as e:
-            print(f"Error loading UI config: {e}")
-    return {}
+            print(f"Error loading config: {e}")
+            return defaults
+    
+    return defaults
 
 
-def save_ui_config(config: Dict):
-    """Save UI configuration."""
-    with open(UI_CONFIG_FILE, 'w') as f:
+def save_config(config: Dict):
+    """Save unified configuration."""
+    with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=2)
 
 
 def is_configured() -> bool:
-    """Check if UI is configured."""
-    config = load_ui_config()
-    return 'papers_dir' in config and 'interests_file' in config
+    """Check if UI is configured (has papers_dir and interests_file set)."""
+    config = load_config()
+    return 'papers_dir' in config and 'interests_file' in config and config.get('papers_dir') and config.get('interests_file')
 
 
-def get_config_file_path() -> Optional[Path]:
-    """Get the path to config.yaml file."""
-    ui_config = load_ui_config()
-    
-    # Check if user specified a config file in UI config
-    if 'config_file' in ui_config:
-        config_path = Path(ui_config['config_file']).expanduser().resolve()
-        if config_path.exists():
-            return config_path
-    
-    # Try to find config.yaml in common locations
-    # 1. Current working directory
-    cwd_config = Path.cwd() / 'config.yaml'
-    if cwd_config.exists():
-        return cwd_config
-    
-    # 2. Package default
-    try:
-        default_config = get_default_config_path()
-        if default_config and default_config.exists():
-            return default_config
-    except:
-        pass
-    
-    # 3. Module directory
-    module_config = _MODULE_DIR / 'config.yaml'
-    if module_config.exists():
-        return module_config
-    
-    return None
+# Removed get_config_file_path - we now use unified JSON config
 
 
 def run_processing_job(config_path: Optional[Path], interests_file: Optional[Path], max_papers: Optional[int]):
@@ -114,9 +120,9 @@ def run_processing_job(config_path: Optional[Path], interests_file: Optional[Pat
         with job_lock:
             job_status['message'] = 'Initializing components...'
         
-        # Run the main processing
+        # Run the main processing - pass None for config_path to use JSON config
         exit_code = run_main(
-            config_path=config_path,
+            config_path=None,  # Use JSON config instead
             interests_file=interests_file,
             max_papers=max_papers
         )
@@ -184,20 +190,13 @@ def setup():
         # Create papers directory if it doesn't exist
         papers_path.mkdir(parents=True, exist_ok=True)
         
-        # Try to find config.yaml
-        config_path = get_config_file_path()
+        # Load current config and update with setup values
+        config = load_config()
+        config['papers_dir'] = str(papers_path)
+        config['interests_file'] = str(interests_path)
+        config['configured_at'] = datetime.now().isoformat()
         
-        # Save configuration
-        ui_config = {
-            'papers_dir': str(papers_path),
-            'interests_file': str(interests_path),
-            'configured_at': datetime.now().isoformat()
-        }
-        
-        if config_path:
-            ui_config['config_file'] = str(config_path)
-        
-        save_ui_config(ui_config)
+        save_config(config)
         
         return redirect(url_for('dashboard'))
     
@@ -210,7 +209,7 @@ def dashboard():
     if not is_configured():
         return redirect(url_for('setup'))
     
-    config = load_ui_config()
+    config = load_config()
     papers_dir = Path(config['papers_dir'])
     
     # Count papers
@@ -248,7 +247,7 @@ def papers_page():
 
 @app.route('/config')
 def config_page():
-    """Config editor page."""
+    """Unified config editor page."""
     if not is_configured():
         return redirect(url_for('setup'))
     return render_template('config.html')
@@ -260,7 +259,7 @@ def interests():
     if not is_configured():
         return jsonify({'error': 'Not configured'}), 400
     
-    config = load_ui_config()
+    config = load_config()
     interests_path = Path(config['interests_file'])
     
     if request.method == 'GET':
@@ -290,7 +289,7 @@ def list_papers():
     if not is_configured():
         return jsonify({'error': 'Not configured'}), 400
     
-    config = load_ui_config()
+    config = load_config()
     papers_dir = Path(config['papers_dir'])
     
     if not papers_dir.exists():
@@ -361,7 +360,7 @@ def get_paper(arxiv_id: str):
     if not is_configured():
         return jsonify({'error': 'Not configured'}), 400
     
-    config = load_ui_config()
+    config = load_config()
     papers_dir = Path(config['papers_dir'])
     
     # Find the paper file
@@ -402,7 +401,7 @@ def serve_paper(filename: str):
     if not is_configured():
         return jsonify({'error': 'Not configured'}), 400
     
-    config = load_ui_config()
+    config = load_config()
     papers_dir = Path(config['papers_dir'])
     
     # Security: ensure filename is within papers_dir
@@ -418,40 +417,38 @@ def serve_paper(filename: str):
 
 @app.route('/api/config', methods=['GET', 'POST'])
 def api_config():
-    """Get or update config.yaml file."""
+    """Get or update unified JSON config file."""
     if not is_configured():
         return jsonify({'error': 'Not configured'}), 400
     
-    config_path = get_config_file_path()
-    
-    if not config_path or not config_path.exists():
-        return jsonify({'error': 'Config file not found. Please ensure config.yaml exists.'}), 404
-    
     if request.method == 'GET':
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            return jsonify({'content': content, 'path': str(config_path)})
+            config = load_config()
+            return jsonify({
+                'content': json.dumps(config, indent=2),
+                'path': str(CONFIG_FILE)
+            })
         except Exception as e:
             return jsonify({'error': str(e)}), 500
     
     elif request.method == 'POST':
         content = request.json.get('content', '')
         try:
-            # Validate YAML before saving
-            yaml.safe_load(content)
+            # Validate JSON before saving
+            config_data = json.loads(content)
             
-            with open(config_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            # Validate structure
+            required_keys = ['papers_dir', 'interests_file']
+            for key in required_keys:
+                if key not in config_data:
+                    return jsonify({'error': f'Missing required key: {key}'}), 400
             
-            # Update UI config to remember this config file
-            ui_config = load_ui_config()
-            ui_config['config_file'] = str(config_path)
-            save_ui_config(ui_config)
+            # Save configuration
+            save_config(config_data)
             
             return jsonify({'success': True})
-        except yaml.YAMLError as e:
-            return jsonify({'error': f'Invalid YAML: {str(e)}'}), 400
+        except json.JSONDecodeError as e:
+            return jsonify({'error': f'Invalid JSON: {str(e)}'}), 400
         except Exception as e:
             return jsonify({'error': str(e)}), 500
 
@@ -476,14 +473,13 @@ def api_run():
             max_papers = None
     
     # Get config and interests paths
-    ui_config = load_ui_config()
-    config_path = get_config_file_path()
-    interests_file = Path(ui_config['interests_file'])
+    config = load_config()
+    interests_file = Path(config['interests_file'])
     
-    # Start job in background thread
+    # Start job in background thread (config_path=None means use JSON config)
     thread = threading.Thread(
         target=run_processing_job,
-        args=(config_path, interests_file, max_papers),
+        args=(None, interests_file, max_papers),
         daemon=True
     )
     thread.start()

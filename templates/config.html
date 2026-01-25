@@ -8,12 +8,15 @@
 <div id="status-message"></div>
 
 <div class="form-group">
-    <label for="config-content">Config File (config.yaml)</label>
+    <label for="config-content">Configuration File (~/.archeion_now_config.json)</label>
     <div id="config-path" style="color: #666; font-size: 12px; margin-bottom: 8px;"></div>
     <textarea 
         id="config-content" 
-        style="font-family: 'Courier New', monospace; font-size: 13px; min-height: 400px; width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; font-family: 'Courier New', monospace;"
+        style="font-family: 'Courier New', monospace; font-size: 13px; min-height: 500px; width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; font-family: 'Courier New', monospace;"
     ></textarea>
+    <small style="color: #666; display: block; margin-top: 5px;">
+        This is the unified configuration file. All settings including papers directory, interests file, ArXiv settings, and LLM settings are stored here.
+    </small>
 </div>
 
 <div style="display: flex; gap: 15px;">

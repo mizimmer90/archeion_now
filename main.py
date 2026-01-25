@@ -55,6 +55,38 @@ class ProcessingResult:
     test_label: Optional[str] = None  # "positive" or "negative" for test mode
 
 
+def load_json_config() -> Optional[Config]:
+    """Load configuration from unified JSON config file."""
+    import json
+    json_config_path = Path.home() / '.archeion_now_config.json'
+    
+    if not json_config_path.exists():
+        return None
+    
+    try:
+        with open(json_config_path, 'r') as f:
+            data = json.load(f)
+        
+        # Convert JSON config to Config object format
+        # Map papers_dir to output.output_dir for compatibility
+        config_data = {
+            'interests_file': Path(data.get('interests_file', './interests.txt')),
+            'relevance_threshold': data.get('relevance_threshold', 0.5),
+            'arxiv': data.get('arxiv', {}),
+            'llm': data.get('llm', {}),
+            'output': {
+                'output_dir': Path(data.get('papers_dir', './papers')),  # Use papers_dir
+                'create_subdirs': data.get('output', {}).get('create_subdirs', True),
+                'include_pdf': data.get('output', {}).get('include_pdf', False)
+            }
+        }
+        
+        return Config(**config_data)
+    except Exception as e:
+        print(f"Warning: Could not load JSON config: {e}")
+        return None
+
+
 def initialize_components(config_path: Optional[Path] = None, 
                          interests_file: Optional[Path] = None) -> Tuple[Config, str, LLMAgent, OutputManager, ArxivFetcher]:
     """
@@ -66,20 +98,40 @@ def initialize_components(config_path: Optional[Path] = None,
     # Load environment variables
     load_dotenv()
     
-    # Load configuration - use package default if not provided
+    # Load configuration
+    # Priority: JSON config (if config_path is None) > YAML config > defaults
+    config = None
+    
     if config_path is None:
-        config_path = get_default_config_path()
+        # Try to load from JSON config first
+        config = load_json_config()
+        
+        if config is None:
+            # Fall back to YAML config
+            config_path = get_default_config_path()
+            if config_path.exists():
+                config = load_config(config_path)
+            else:
+                # Use defaults
+                config = Config.default()
+    else:
+        # Use provided YAML config path
+        config = load_config(config_path)
     
-    config = load_config(config_path)
-    
-    # If interests_file in config is relative, resolve it relative to config file location
+    # If interests_file in config is relative, resolve it
     if not config.interests_file.is_absolute():
-        config_dir = config_path.parent
-        resolved_interests = (config_dir / config.interests_file).resolve()
-        if resolved_interests.exists():
-            config.interests_file = resolved_interests
+        if config_path:
+            config_dir = config_path.parent
+            resolved_interests = (config_dir / config.interests_file).resolve()
+            if resolved_interests.exists():
+                config.interests_file = resolved_interests
+        else:
+            # For JSON config, resolve relative to home or current dir
+            resolved_interests = Path(config.interests_file).expanduser().resolve()
+            if resolved_interests.exists():
+                config.interests_file = resolved_interests
     
-    # Set interests_file: CLI argument > resolved config file setting > package default
+    # Set interests_file: CLI argument > config file setting > package default
     if interests_file is None:
         # Check if config interests_file exists, otherwise use package default
         if not config.interests_file.exists():
@@ -277,7 +329,14 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
     print("=" * 60)
     print("Archeion Now - Arxiv Paper Processing")
     print("=" * 60)
-    print(f"Configuration loaded from: {config_path or get_default_config_path()}")
+    if config_path:
+        print(f"Configuration loaded from: {config_path}")
+    else:
+        json_config = Path.home() / '.archeion_now_config.json'
+        if json_config.exists():
+            print(f"Configuration loaded from: {json_config}")
+        else:
+            print(f"Configuration loaded from: {get_default_config_path()}")
     print(f"Interests file: {config.interests_file}")
     print(f"Output directory: {config.output.output_dir}")
     print(f"Arxiv categories: {', '.join(config.arxiv.categories)}")
