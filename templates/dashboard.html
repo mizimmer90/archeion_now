@@ -67,6 +67,51 @@
         font-size: 14px;
         opacity: 0.9;
     }
+    
+    .status-killed {
+        background: #ff9800;
+    }
+    
+    .progress-output {
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 6px;
+        padding: 15px;
+        margin-top: 15px;
+        max-height: 400px;
+        overflow-y: auto;
+        font-family: 'Courier New', monospace;
+        font-size: 12px;
+        line-height: 1.5;
+        display: none;
+    }
+    
+    .progress-output.active {
+        display: block;
+    }
+    
+    .progress-line {
+        margin: 2px 0;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+    
+    .progress-line.status {
+        color: #ffc107;
+        font-weight: bold;
+    }
+    
+    .progress-line.error {
+        color: #ff6b6b;
+    }
+    
+    .kill-btn {
+        background: #dc3545 !important;
+        margin-left: 10px;
+    }
+    
+    .kill-btn:hover {
+        background: #c82333 !important;
+    }
 </style>
 {% endblock %}
 
@@ -87,6 +132,9 @@
         <button onclick="startProcessing()" class="btn" id="run-btn" style="background: white; color: #667eea;">
             Start Processing
         </button>
+        <button onclick="killProcessing()" class="btn kill-btn" id="kill-btn" style="display: none;">
+            Kill Process
+        </button>
         <input 
             type="number" 
             id="max-papers" 
@@ -97,6 +145,7 @@
         <div id="job-status" class="status-indicator status-idle">Idle</div>
     </div>
     <div id="job-message" class="job-message"></div>
+    <div id="progress-output" class="progress-output"></div>
 </div>
 
 <div class="card">
@@ -121,12 +170,19 @@
 
 <script>
 let statusCheckInterval = null;
+let accumulatedProgress = [];
 
 async function startProcessing() {
     const maxPapers = document.getElementById('max-papers').value;
     const runBtn = document.getElementById('run-btn');
     const statusDiv = document.getElementById('job-status');
     const messageDiv = document.getElementById('job-message');
+    const progressOutput = document.getElementById('progress-output');
+    
+    // Clear previous progress
+    progressOutput.innerHTML = '';
+    progressOutput.classList.remove('active');
+    accumulatedProgress = [];
     
     runBtn.disabled = true;
     runBtn.textContent = 'Starting...';
@@ -170,21 +226,37 @@ async function checkStatus() {
         
         // Update status indicator
         statusDiv.className = 'status-indicator';
+        const killBtn = document.getElementById('kill-btn');
+        const progressOutput = document.getElementById('progress-output');
+        
         if (data.running) {
             statusDiv.className += ' status-running';
             statusDiv.textContent = 'Running';
             runBtn.disabled = true;
             runBtn.textContent = 'Processing...';
+            killBtn.style.display = 'inline-block';
+            progressOutput.classList.add('active');
         } else {
+            killBtn.style.display = 'none';
             if (data.status === 'completed') {
                 statusDiv.className += ' status-completed';
                 statusDiv.textContent = 'Completed';
                 runBtn.disabled = false;
                 runBtn.textContent = 'Start Processing';
                 stopStatusPolling();
+                // Keep progress visible for a bit, then hide
+                setTimeout(() => {
+                    progressOutput.classList.remove('active');
+                }, 5000);
             } else if (data.status === 'error') {
                 statusDiv.className += ' status-error';
                 statusDiv.textContent = 'Error';
+                runBtn.disabled = false;
+                runBtn.textContent = 'Start Processing';
+                stopStatusPolling();
+            } else if (data.status === 'killed') {
+                statusDiv.className += ' status-killed';
+                statusDiv.textContent = 'Killed';
                 runBtn.disabled = false;
                 runBtn.textContent = 'Start Processing';
                 stopStatusPolling();
@@ -193,6 +265,7 @@ async function checkStatus() {
                 statusDiv.textContent = 'Idle';
                 runBtn.disabled = false;
                 runBtn.textContent = 'Start Processing';
+                progressOutput.classList.remove('active');
             }
         }
         
@@ -201,6 +274,36 @@ async function checkStatus() {
             messageDiv.textContent = data.message;
         } else {
             messageDiv.textContent = '';
+        }
+        
+        // Update progress output
+        if (data.progress && data.progress.length > 0) {
+            const progressContainer = progressOutput;
+            data.progress.forEach(msg => {
+                // Add to accumulated progress
+                accumulatedProgress.push(msg);
+                const line = document.createElement('div');
+                line.className = 'progress-line';
+                if (msg.type === 'status') {
+                    line.className += ' status';
+                } else if (msg.type === 'error') {
+                    line.className += ' error';
+                }
+                line.textContent = msg.content;
+                progressContainer.appendChild(line);
+            });
+            // Keep only last 1000 lines to prevent memory issues
+            if (accumulatedProgress.length > 1000) {
+                const toRemove = accumulatedProgress.length - 1000;
+                for (let i = 0; i < toRemove; i++) {
+                    if (progressContainer.firstChild) {
+                        progressContainer.removeChild(progressContainer.firstChild);
+                    }
+                }
+                accumulatedProgress = accumulatedProgress.slice(toRemove);
+            }
+            // Auto-scroll to bottom
+            progressContainer.scrollTop = progressContainer.scrollHeight;
         }
         
         // If completed or error, reload page after a delay to refresh paper count
@@ -226,6 +329,31 @@ function stopStatusPolling() {
     if (statusCheckInterval) {
         clearInterval(statusCheckInterval);
         statusCheckInterval = null;
+    }
+}
+
+async function killProcessing() {
+    if (!confirm('Are you sure you want to kill the running process? This cannot be undone.')) {
+        return;
+    }
+    
+    try {
+        const response = await fetch('/api/run/kill', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            document.getElementById('job-message').textContent = 'Termination signal sent...';
+        } else {
+            alert(`Error: ${data.error}`);
+        }
+    } catch (error) {
+        alert(`Error: ${error.message}`);
     }
 }
 

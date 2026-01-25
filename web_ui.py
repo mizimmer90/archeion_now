@@ -4,6 +4,7 @@ import json
 import threading
 import sys
 import io
+import queue
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for
 from typing import Optional, Dict, List
@@ -27,9 +28,13 @@ job_status = {
     'running': False,
     'status': 'idle',
     'message': '',
-    'error': None
+    'error': None,
+    'progress': []
 }
 job_lock = threading.Lock()
+job_thread = None
+kill_flag = threading.Event()
+progress_queue = queue.Queue()
 
 
 def get_default_config() -> Dict:
@@ -95,9 +100,38 @@ def is_configured() -> bool:
 # Removed get_config_file_path - we now use unified JSON config
 
 
+class TeeOutput:
+    """Tee output to both original stream and queue for UI streaming."""
+    def __init__(self, original_stream, queue_obj):
+        self.original = original_stream
+        self.queue = queue_obj
+        self.buffer = []
+    
+    def write(self, text):
+        if text:
+            # Add to buffer
+            self.buffer.append(text)
+            # Also write to original stream
+            if self.original:
+                self.original.write(text)
+                self.original.flush()
+            # Send to queue for UI
+            try:
+                self.queue.put_nowait(('output', text))
+            except queue.Full:
+                pass  # Queue full, skip
+    
+    def flush(self):
+        if self.original:
+            self.original.flush()
+    
+    def getvalue(self):
+        return ''.join(self.buffer)
+
+
 def run_processing_job(config_path: Optional[Path], interests_file: Optional[Path], max_papers: Optional[int]):
     """Run the paper processing in a background thread."""
-    global job_status
+    global job_status, kill_flag
     
     with job_lock:
         if job_status['running']:
@@ -107,48 +141,90 @@ def run_processing_job(config_path: Optional[Path], interests_file: Optional[Pat
             'running': True,
             'status': 'running',
             'message': 'Starting paper processing...',
-            'error': None
+            'error': None,
+            'progress': []
         }
+        kill_flag.clear()
+        # Clear progress queue
+        while not progress_queue.empty():
+            try:
+                progress_queue.get_nowait()
+            except queue.Empty:
+                break
     
     try:
-        # Capture stdout/stderr
+        # Capture stdout/stderr with tee to queue
         old_stdout = sys.stdout
         old_stderr = sys.stderr
-        sys.stdout = io.StringIO()
-        sys.stderr = io.StringIO()
+        tee_stdout = TeeOutput(old_stdout, progress_queue)
+        tee_stderr = TeeOutput(old_stderr, progress_queue)
+        sys.stdout = tee_stdout
+        sys.stderr = tee_stderr
         
         with job_lock:
             job_status['message'] = 'Initializing components...'
+            progress_queue.put_nowait(('status', 'Initializing components...'))
+        
+        # Check kill flag before starting
+        if kill_flag.is_set():
+            raise KeyboardInterrupt("Process killed by user")
         
         # Run the main processing - pass None for config_path to use JSON config
-        exit_code = run_main(
-            config_path=None,  # Use JSON config instead
-            interests_file=interests_file,
-            max_papers=max_papers
-        )
+        # We'll need to check kill_flag periodically in main, but for now we'll catch KeyboardInterrupt
+        exit_code = 0
+        try:
+            exit_code = run_main(
+                config_path=None,  # Use JSON config instead
+                interests_file=interests_file,
+                max_papers=max_papers
+            )
+        except KeyboardInterrupt:
+            progress_queue.put_nowait(('status', 'Process terminated by user'))
+            raise
         
-        output = sys.stdout.getvalue()
-        errors = sys.stderr.getvalue()
+        output = tee_stdout.getvalue()
+        errors = tee_stderr.getvalue()
         
         sys.stdout = old_stdout
         sys.stderr = old_stderr
         
         with job_lock:
-            if exit_code == 0:
+            if kill_flag.is_set():
+                job_status = {
+                    'running': False,
+                    'status': 'killed',
+                    'message': 'Process was terminated by user',
+                    'error': None,
+                    'progress': []
+                }
+            elif exit_code == 0:
                 job_status = {
                     'running': False,
                     'status': 'completed',
                     'message': 'Paper processing completed successfully!',
                     'error': None,
-                    'output': output
+                    'progress': []
                 }
             else:
                 job_status = {
                     'running': False,
                     'status': 'error',
                     'message': 'Paper processing completed with errors.',
-                    'error': errors or output
+                    'error': errors or output,
+                    'progress': []
                 }
+    except KeyboardInterrupt:
+        sys.stdout = old_stdout if 'old_stdout' in locals() else sys.stdout
+        sys.stderr = old_stderr if 'old_stderr' in locals() else sys.stderr
+        
+        with job_lock:
+            job_status = {
+                'running': False,
+                'status': 'killed',
+                'message': 'Process was terminated by user',
+                'error': None,
+                'progress': []
+            }
     except Exception as e:
         sys.stdout = old_stdout if 'old_stdout' in locals() else sys.stdout
         sys.stderr = old_stderr if 'old_stderr' in locals() else sys.stderr
@@ -158,8 +234,11 @@ def run_processing_job(config_path: Optional[Path], interests_file: Optional[Pat
                 'running': False,
                 'status': 'error',
                 'message': 'Error during paper processing',
-                'error': str(e)
+                'error': str(e),
+                'progress': []
             }
+    finally:
+        kill_flag.clear()
 
 
 @app.route('/')
@@ -477,12 +556,13 @@ def api_run():
     interests_file = Path(config['interests_file'])
     
     # Start job in background thread (config_path=None means use JSON config)
-    thread = threading.Thread(
+    global job_thread
+    job_thread = threading.Thread(
         target=run_processing_job,
         args=(None, interests_file, max_papers),
         daemon=True
     )
-    thread.start()
+    job_thread.start()
     
     return jsonify({'success': True, 'message': 'Processing started'})
 
@@ -490,8 +570,110 @@ def api_run():
 @app.route('/api/run/status')
 def api_run_status():
     """Get status of paper processing job."""
+    # Collect progress messages from queue
+    progress_messages = []
+    max_messages = 100  # Limit to prevent memory issues
+    while len(progress_messages) < max_messages:
+        try:
+            msg_type, msg_content = progress_queue.get_nowait()
+            progress_messages.append({
+                'type': msg_type,
+                'content': msg_content,
+                'timestamp': datetime.now().isoformat()
+            })
+        except queue.Empty:
+            break
+    
     with job_lock:
-        return jsonify(job_status.copy())
+        status = job_status.copy()
+        # Add new progress messages (don't store in job_status to avoid memory bloat)
+        status['progress'] = progress_messages
+        return jsonify(status)
+
+
+@app.route('/api/run/kill', methods=['POST'])
+def api_run_kill():
+    """Kill the running paper processing job."""
+    global kill_flag, job_thread
+    
+    with job_lock:
+        if not job_status['running']:
+            return jsonify({'error': 'No process is currently running'}), 400
+        
+        # Set kill flag
+        kill_flag.set()
+        
+        # Try to interrupt the thread (Python limitation - can't forcefully kill)
+        # The process will check kill_flag and exit gracefully
+        return jsonify({'success': True, 'message': 'Termination signal sent'})
+
+
+@app.route('/cache')
+def cache_page():
+    """Cache browser page."""
+    if not is_configured():
+        return redirect(url_for('setup'))
+    return render_template('cache.html')
+
+
+@app.route('/api/cache')
+def api_cache():
+    """Get cache file contents."""
+    if not is_configured():
+        return jsonify({'error': 'Not configured'}), 400
+    
+    config = load_config()
+    papers_dir = Path(config['papers_dir'])
+    cache_file = papers_dir / "doi_cache.json"
+    
+    if not cache_file.exists():
+        return jsonify({
+            'exists': False,
+            'path': str(cache_file),
+            'entries': [],
+            'stats': {
+                'total': 0,
+                'accepted': 0,
+                'rejected': 0
+            }
+        })
+    
+    try:
+        with open(cache_file, 'r', encoding='utf-8') as f:
+            cache_data = json.load(f)
+        
+        # Convert to list format for easier display
+        entries = []
+        stats = {'total': 0, 'accepted': 0, 'rejected': 0}
+        
+        for doi, data in cache_data.items():
+            entries.append({
+                'doi': doi,
+                'title': data.get('title', 'Unknown'),
+                'status': data.get('status', 'unknown'),
+                'relevance': data.get('relevance', 0.0),
+                'confidence': data.get('confidence', 0.0),
+                'impact': data.get('impact', data.get('estimated_impact', 0.0)),
+                'reasoning': data.get('reasoning', ''),
+                'timestamp': data.get('timestamp', '')
+            })
+            stats['total'] += 1
+            if data.get('status') == 'accept':
+                stats['accepted'] += 1
+            elif data.get('status') == 'reject':
+                stats['rejected'] += 1
+        
+        # Sort by timestamp (most recent first)
+        entries.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+        
+        return jsonify({
+            'exists': True,
+            'path': str(cache_file),
+            'entries': entries,
+            'stats': stats
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 def main():

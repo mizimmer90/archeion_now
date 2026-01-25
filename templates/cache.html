@@ -1,0 +1,291 @@
+{% extends "base.html" %}
+
+{% block title %}Cache Browser - Archeion Now{% endblock %}
+
+{% block extra_css %}
+<style>
+    .cache-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 30px;
+    }
+    
+    .stat-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+    }
+    
+    .stat-card h3 {
+        font-size: 14px;
+        opacity: 0.9;
+        margin-bottom: 10px;
+    }
+    
+    .stat-card .value {
+        font-size: 32px;
+        font-weight: bold;
+    }
+    
+    .cache-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    
+    .cache-table thead {
+        background: #f8f9fa;
+    }
+    
+    .cache-table th {
+        padding: 15px;
+        text-align: left;
+        font-weight: 600;
+        color: #333;
+        border-bottom: 2px solid #e0e0e0;
+    }
+    
+    .cache-table td {
+        padding: 12px 15px;
+        border-bottom: 1px solid #e0e0e0;
+    }
+    
+    .cache-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+    
+    .status-badge {
+        display: inline-block;
+        padding: 4px 12px;
+        border-radius: 12px;
+        font-size: 12px;
+        font-weight: 500;
+    }
+    
+    .status-accept {
+        background: #28a745;
+        color: white;
+    }
+    
+    .status-reject {
+        background: #dc3545;
+        color: white;
+    }
+    
+    .status-unknown {
+        background: #6c757d;
+        color: white;
+    }
+    
+    .score {
+        font-weight: 600;
+    }
+    
+    .score-high {
+        color: #28a745;
+    }
+    
+    .score-medium {
+        color: #ffc107;
+    }
+    
+    .score-low {
+        color: #dc3545;
+    }
+    
+    .reasoning {
+        max-width: 300px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    .reasoning:hover {
+        white-space: normal;
+        overflow: visible;
+        position: relative;
+        z-index: 10;
+        background: white;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        padding: 8px;
+        border-radius: 4px;
+    }
+    
+    .search-box {
+        margin-bottom: 20px;
+    }
+    
+    .search-box input {
+        width: 100%;
+        padding: 12px;
+        border: 2px solid #e0e0e0;
+        border-radius: 6px;
+        font-size: 14px;
+    }
+    
+    .search-box input:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+    
+    .loading {
+        text-align: center;
+        padding: 40px;
+        color: #666;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 30px; color: #333;">Cache Browser</h2>
+
+<div id="loading" class="loading">
+    <div class="spinner"></div>
+    <p>Loading cache data...</p>
+</div>
+
+<div id="content" style="display: none;">
+    <div id="cache-stats" class="cache-stats"></div>
+    
+    <div class="card">
+        <div class="search-box">
+            <input type="text" id="search-input" placeholder="Search by title, DOI, or reasoning..." onkeyup="filterTable()">
+        </div>
+        <div style="overflow-x: auto;">
+            <table class="cache-table" id="cache-table">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th>Title</th>
+                        <th>DOI</th>
+                        <th>Relevance</th>
+                        <th>Confidence</th>
+                        <th>Impact</th>
+                        <th>Reasoning</th>
+                        <th>Timestamp</th>
+                    </tr>
+                </thead>
+                <tbody id="cache-tbody">
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+let cacheData = [];
+
+async function loadCache() {
+    try {
+        const response = await fetch('/api/cache');
+        const data = await response.json();
+        
+        if (data.error) {
+            document.getElementById('loading').innerHTML = `<p style="color: #dc3545;">Error: ${data.error}</p>`;
+            return;
+        }
+        
+        if (!data.exists) {
+            document.getElementById('loading').innerHTML = `
+                <p>Cache file not found at: ${data.path}</p>
+                <p style="color: #666; margin-top: 10px;">The cache file will be created when you process papers.</p>
+            `;
+            return;
+        }
+        
+        cacheData = data.entries;
+        
+        // Display stats
+        const statsDiv = document.getElementById('cache-stats');
+        statsDiv.innerHTML = `
+            <div class="stat-card">
+                <h3>Total Entries</h3>
+                <div class="value">${data.stats.total}</div>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
+                <h3>Accepted</h3>
+                <div class="value">${data.stats.accepted}</div>
+            </div>
+            <div class="stat-card" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);">
+                <h3>Rejected</h3>
+                <div class="value">${data.stats.rejected}</div>
+            </div>
+        `;
+        
+        // Display table
+        renderTable(cacheData);
+        
+        document.getElementById('loading').style.display = 'none';
+        document.getElementById('content').style.display = 'block';
+    } catch (error) {
+        document.getElementById('loading').innerHTML = `<p style="color: #dc3545;">Error loading cache: ${error.message}</p>`;
+    }
+}
+
+function renderTable(entries) {
+    const tbody = document.getElementById('cache-tbody');
+    tbody.innerHTML = '';
+    
+    if (entries.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: #666;">No cache entries found</td></tr>';
+        return;
+    }
+    
+    entries.forEach(entry => {
+        const row = document.createElement('tr');
+        
+        const statusClass = entry.status === 'accept' ? 'status-accept' : 
+                           entry.status === 'reject' ? 'status-reject' : 'status-unknown';
+        const statusText = entry.status === 'accept' ? 'Accepted' : 
+                          entry.status === 'reject' ? 'Rejected' : 'Unknown';
+        
+        const relevanceClass = entry.relevance >= 0.7 ? 'score-high' : 
+                              entry.relevance >= 0.4 ? 'score-medium' : 'score-low';
+        const confidenceClass = entry.confidence >= 0.7 ? 'score-high' : 
+                               entry.confidence >= 0.4 ? 'score-medium' : 'score-low';
+        const impactClass = entry.impact >= 0.7 ? 'score-high' : 
+                           entry.impact >= 0.4 ? 'score-medium' : 'score-low';
+        
+        const timestamp = entry.timestamp ? new Date(entry.timestamp).toLocaleString() : 'N/A';
+        
+        row.innerHTML = `
+            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+            <td>${escapeHtml(entry.title)}</td>
+            <td><code style="font-size: 11px;">${escapeHtml(entry.doi)}</code></td>
+            <td><span class="score ${relevanceClass}">${entry.relevance.toFixed(2)}</span></td>
+            <td><span class="score ${confidenceClass}">${entry.confidence.toFixed(2)}</span></td>
+            <td><span class="score ${impactClass}">${entry.impact.toFixed(2)}</span></td>
+            <td class="reasoning" title="${escapeHtml(entry.reasoning)}">${escapeHtml(entry.reasoning || 'N/A')}</td>
+            <td style="font-size: 12px; color: #666;">${timestamp}</td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function filterTable() {
+    const searchTerm = document.getElementById('search-input').value.toLowerCase();
+    const filtered = cacheData.filter(entry => {
+        return entry.title.toLowerCase().includes(searchTerm) ||
+               entry.doi.toLowerCase().includes(searchTerm) ||
+               (entry.reasoning && entry.reasoning.toLowerCase().includes(searchTerm));
+    });
+    renderTable(filtered);
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Load cache on page load
+window.addEventListener('DOMContentLoaded', loadCache);
+</script>
+{% endblock %}
+
