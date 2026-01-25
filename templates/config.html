@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Config - Archeion Now{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 30px; color: #333;">Edit Configuration</h2>
+
+<div id="status-message"></div>
+
+<div class="form-group">
+    <label for="config-content">Config File (config.yaml)</label>
+    <div id="config-path" style="color: #666; font-size: 12px; margin-bottom: 8px;"></div>
+    <textarea 
+        id="config-content" 
+        style="font-family: 'Courier New', monospace; font-size: 13px; min-height: 400px; width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; font-family: 'Courier New', monospace;"
+    ></textarea>
+</div>
+
+<div style="display: flex; gap: 15px;">
+    <button onclick="saveConfig()" class="btn">Save Changes</button>
+    <button onclick="loadConfig()" class="btn btn-secondary">Reload</button>
+</div>
+
+<script>
+let isLoading = false;
+
+async function loadConfig() {
+    if (isLoading) return;
+    isLoading = true;
+    
+    const textarea = document.getElementById('config-content');
+    const pathDiv = document.getElementById('config-path');
+    const statusDiv = document.getElementById('status-message');
+    
+    statusDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+    textarea.disabled = true;
+    
+    try {
+        const response = await fetch('/api/config');
+        const data = await response.json();
+        
+        if (response.ok) {
+            textarea.value = data.content;
+            pathDiv.textContent = `File: ${data.path}`;
+            statusDiv.innerHTML = '<div class="success">Configuration loaded successfully</div>';
+            setTimeout(() => {
+                statusDiv.innerHTML = '';
+            }, 3000);
+        } else {
+            statusDiv.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+        }
+    } catch (error) {
+        statusDiv.innerHTML = `<div class="error">Error loading configuration: ${error.message}</div>`;
+    } finally {
+        textarea.disabled = false;
+        isLoading = false;
+    }
+}
+
+async function saveConfig() {
+    if (isLoading) return;
+    isLoading = true;
+    
+    const textarea = document.getElementById('config-content');
+    const statusDiv = document.getElementById('status-message');
+    const content = textarea.value;
+    
+    statusDiv.innerHTML = '<div class="loading"><div class="spinner"></div>Saving...</div>';
+    textarea.disabled = true;
+    
+    try {
+        const response = await fetch('/api/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ content: content })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            statusDiv.innerHTML = '<div class="success">Configuration saved successfully!</div>';
+            setTimeout(() => {
+                statusDiv.innerHTML = '';
+            }, 3000);
+        } else {
+            statusDiv.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+        }
+    } catch (error) {
+        statusDiv.innerHTML = `<div class="error">Error saving configuration: ${error.message}</div>`;
+    } finally {
+        textarea.disabled = false;
+        isLoading = false;
+    }
+}
+
+// Load config on page load
+window.addEventListener('DOMContentLoaded', loadConfig);
+</script>
+{% endblock %}
+

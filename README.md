@@ -230,12 +230,16 @@ This configuration is saved to `~/.archeion_now_ui_config.json` and persists acr
 
 ### Web UI Features
 
-- **Dashboard**: Overview of your papers and quick access to other sections
+- **Dashboard**: Overview of your papers, run paper processing, and quick access to all sections
 - **Interests Editor**: View and edit your `interests.txt` file directly in the browser
+- **Config Editor**: View and edit your `config.yaml` file with YAML validation
 - **Papers Browser**: Browse all processed papers, search by title/category, and view full summaries
+- **Run Processing**: Start paper processing directly from the web UI with real-time status updates
 
 The web UI provides a convenient way to:
-- Update your research interests without editing files manually
+- Update your research interests and configuration without editing files manually
+- Run paper processing with optional limits (max papers)
+- Monitor processing status in real-time
 - Browse and search through your processed papers
 - View detailed summaries in a clean, readable format
 

@@ -1,17 +1,18 @@
 """Web UI for archeion_now using Flask."""
 import os
 import json
+import yaml
+import threading
+import sys
+import io
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, send_from_directory, redirect, url_for
 from typing import Optional, Dict, List
 from datetime import datetime
 
-# Note: These imports are kept for potential future use (e.g., triggering paper processing from UI)
-# from config import load_config, Config
-# from main import initialize_components, process_single_paper
-# from arxiv_fetcher import ArxivFetcher, PaperMetadata
-# from output_manager import OutputManager
-# from agent import LLMAgent
+# Import main processing functions
+from config import load_config, Config
+from main import main as run_main, get_default_config_path
 
 # Get the directory where this module is located
 _MODULE_DIR = Path(__file__).parent.absolute()
@@ -22,6 +23,15 @@ app.config['SECRET_KEY'] = os.urandom(24)
 
 # Configuration storage
 UI_CONFIG_FILE = Path.home() / '.archeion_now_ui_config.json'
+
+# Job status storage (in-memory for now)
+job_status = {
+    'running': False,
+    'status': 'idle',
+    'message': '',
+    'error': None
+}
+job_lock = threading.Lock()
 
 
 def load_ui_config() -> Dict:
@@ -45,6 +55,105 @@ def is_configured() -> bool:
     """Check if UI is configured."""
     config = load_ui_config()
     return 'papers_dir' in config and 'interests_file' in config
+
+
+def get_config_file_path() -> Optional[Path]:
+    """Get the path to config.yaml file."""
+    ui_config = load_ui_config()
+    
+    # Check if user specified a config file in UI config
+    if 'config_file' in ui_config:
+        config_path = Path(ui_config['config_file']).expanduser().resolve()
+        if config_path.exists():
+            return config_path
+    
+    # Try to find config.yaml in common locations
+    # 1. Current working directory
+    cwd_config = Path.cwd() / 'config.yaml'
+    if cwd_config.exists():
+        return cwd_config
+    
+    # 2. Package default
+    try:
+        default_config = get_default_config_path()
+        if default_config and default_config.exists():
+            return default_config
+    except:
+        pass
+    
+    # 3. Module directory
+    module_config = _MODULE_DIR / 'config.yaml'
+    if module_config.exists():
+        return module_config
+    
+    return None
+
+
+def run_processing_job(config_path: Optional[Path], interests_file: Optional[Path], max_papers: Optional[int]):
+    """Run the paper processing in a background thread."""
+    global job_status
+    
+    with job_lock:
+        if job_status['running']:
+            return  # Already running
+    
+        job_status = {
+            'running': True,
+            'status': 'running',
+            'message': 'Starting paper processing...',
+            'error': None
+        }
+    
+    try:
+        # Capture stdout/stderr
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+        
+        with job_lock:
+            job_status['message'] = 'Initializing components...'
+        
+        # Run the main processing
+        exit_code = run_main(
+            config_path=config_path,
+            interests_file=interests_file,
+            max_papers=max_papers
+        )
+        
+        output = sys.stdout.getvalue()
+        errors = sys.stderr.getvalue()
+        
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
+        
+        with job_lock:
+            if exit_code == 0:
+                job_status = {
+                    'running': False,
+                    'status': 'completed',
+                    'message': 'Paper processing completed successfully!',
+                    'error': None,
+                    'output': output
+                }
+            else:
+                job_status = {
+                    'running': False,
+                    'status': 'error',
+                    'message': 'Paper processing completed with errors.',
+                    'error': errors or output
+                }
+    except Exception as e:
+        sys.stdout = old_stdout if 'old_stdout' in locals() else sys.stdout
+        sys.stderr = old_stderr if 'old_stderr' in locals() else sys.stderr
+        
+        with job_lock:
+            job_status = {
+                'running': False,
+                'status': 'error',
+                'message': 'Error during paper processing',
+                'error': str(e)
+            }
 
 
 @app.route('/')
@@ -75,12 +184,20 @@ def setup():
         # Create papers directory if it doesn't exist
         papers_path.mkdir(parents=True, exist_ok=True)
         
+        # Try to find config.yaml
+        config_path = get_config_file_path()
+        
         # Save configuration
-        save_ui_config({
+        ui_config = {
             'papers_dir': str(papers_path),
             'interests_file': str(interests_path),
             'configured_at': datetime.now().isoformat()
-        })
+        }
+        
+        if config_path:
+            ui_config['config_file'] = str(config_path)
+        
+        save_ui_config(ui_config)
         
         return redirect(url_for('dashboard'))
     
@@ -102,7 +219,15 @@ def dashboard():
         # Count markdown files (excluding index.md)
         paper_count = len([f for f in papers_dir.rglob('*.md') if f.name != 'index.md'])
     
-    return render_template('dashboard.html', paper_count=paper_count)
+    # Get job status
+    with job_lock:
+        job_running = job_status['running']
+        job_status_msg = job_status['status']
+    
+    return render_template('dashboard.html', 
+                         paper_count=paper_count,
+                         job_running=job_running,
+                         job_status=job_status_msg)
 
 
 @app.route('/interests')
@@ -119,6 +244,14 @@ def papers_page():
     if not is_configured():
         return redirect(url_for('setup'))
     return render_template('papers.html')
+
+
+@app.route('/config')
+def config_page():
+    """Config editor page."""
+    if not is_configured():
+        return redirect(url_for('setup'))
+    return render_template('config.html')
 
 
 @app.route('/api/interests', methods=['GET', 'POST'])
@@ -283,14 +416,86 @@ def serve_paper(filename: str):
     return send_from_directory(papers_dir, filename)
 
 
-@app.route('/api/config')
-def get_config():
-    """Get current configuration."""
+@app.route('/api/config', methods=['GET', 'POST'])
+def api_config():
+    """Get or update config.yaml file."""
     if not is_configured():
         return jsonify({'error': 'Not configured'}), 400
     
-    config = load_ui_config()
-    return jsonify(config)
+    config_path = get_config_file_path()
+    
+    if not config_path or not config_path.exists():
+        return jsonify({'error': 'Config file not found. Please ensure config.yaml exists.'}), 404
+    
+    if request.method == 'GET':
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return jsonify({'content': content, 'path': str(config_path)})
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+    
+    elif request.method == 'POST':
+        content = request.json.get('content', '')
+        try:
+            # Validate YAML before saving
+            yaml.safe_load(content)
+            
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            # Update UI config to remember this config file
+            ui_config = load_ui_config()
+            ui_config['config_file'] = str(config_path)
+            save_ui_config(ui_config)
+            
+            return jsonify({'success': True})
+        except yaml.YAMLError as e:
+            return jsonify({'error': f'Invalid YAML: {str(e)}'}), 400
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/run', methods=['POST'])
+def api_run():
+    """Start paper processing job."""
+    if not is_configured():
+        return jsonify({'error': 'Not configured'}), 400
+    
+    with job_lock:
+        if job_status['running']:
+            return jsonify({'error': 'Processing is already running'}), 400
+    
+    # Get parameters
+    data = request.json or {}
+    max_papers = data.get('max_papers')
+    if max_papers:
+        try:
+            max_papers = int(max_papers)
+        except:
+            max_papers = None
+    
+    # Get config and interests paths
+    ui_config = load_ui_config()
+    config_path = get_config_file_path()
+    interests_file = Path(ui_config['interests_file'])
+    
+    # Start job in background thread
+    thread = threading.Thread(
+        target=run_processing_job,
+        args=(config_path, interests_file, max_papers),
+        daemon=True
+    )
+    thread.start()
+    
+    return jsonify({'success': True, 'message': 'Processing started'})
+
+
+@app.route('/api/run/status')
+def api_run_status():
+    """Get status of paper processing job."""
+    with job_lock:
+        return jsonify(job_status.copy())
 
 
 def main():
