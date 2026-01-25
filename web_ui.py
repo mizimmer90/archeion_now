@@ -129,7 +129,7 @@ class TeeOutput:
         return ''.join(self.buffer)
 
 
-def run_processing_job(config_path: Optional[Path], interests_file: Optional[Path], max_papers: Optional[int]):
+def run_processing_job(config_path: Optional[Path], interests_file: Optional[Path], max_papers: Optional[int], skip_cache: bool = False):
     """Run the paper processing in a background thread."""
     global job_status, kill_flag
     
@@ -176,7 +176,8 @@ def run_processing_job(config_path: Optional[Path], interests_file: Optional[Pat
             exit_code = run_main(
                 config_path=None,  # Use JSON config instead
                 interests_file=interests_file,
-                max_papers=max_papers
+                max_papers=max_papers,
+                skip_cache=skip_cache
             )
         except KeyboardInterrupt:
             progress_queue.put_nowait(('status', 'Process terminated by user'))
@@ -559,12 +560,47 @@ def api_run():
     global job_thread
     job_thread = threading.Thread(
         target=run_processing_job,
-        args=(None, interests_file, max_papers),
+        args=(None, interests_file, max_papers, False),  # skip_cache=False for normal run
         daemon=True
     )
     job_thread.start()
     
     return jsonify({'success': True, 'message': 'Processing started'})
+
+
+@app.route('/api/rerun', methods=['POST'])
+def api_rerun():
+    """Start paper processing job with cache skipping (re-run mode)."""
+    if not is_configured():
+        return jsonify({'error': 'Not configured'}), 400
+    
+    with job_lock:
+        if job_status['running']:
+            return jsonify({'error': 'Processing is already running'}), 400
+    
+    # Get parameters
+    data = request.json or {}
+    max_papers = data.get('max_papers')
+    if max_papers:
+        try:
+            max_papers = int(max_papers)
+        except:
+            max_papers = None
+    
+    # Get config and interests paths
+    config = load_config()
+    interests_file = Path(config['interests_file'])
+    
+    # Start job in background thread with skip_cache=True
+    global job_thread
+    job_thread = threading.Thread(
+        target=run_processing_job,
+        args=(None, interests_file, max_papers, True),  # skip_cache=True for re-run
+        daemon=True
+    )
+    job_thread.start()
+    
+    return jsonify({'success': True, 'message': 'Re-run processing started (cache will be overwritten)'})
 
 
 @app.route('/api/run/status')

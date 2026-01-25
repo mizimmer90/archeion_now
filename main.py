@@ -174,7 +174,8 @@ def process_single_paper(
     relevance_threshold: float,
     test_label: Optional[str] = None,
     save_summary: bool = True,
-    verbose: bool = True
+    verbose: bool = True,
+    skip_cache: bool = False
 ) -> ProcessingResult:
     """
     Process a single paper through the full pipeline.
@@ -189,13 +190,17 @@ def process_single_paper(
         test_label: Optional test label ("positive" or "negative")
         save_summary: Whether to save summary to disk (only if paper is relevant)
         verbose: Whether to print progress
+        skip_cache: If True, skip cache check and reprocess even if cached
     
     Returns:
         ProcessingResult with all decisions and summary
     """
-    # Check cache first
-    cached_decision = output_manager.is_cached(paper.doi)
-    is_cached = cached_decision is not None
+    # Check cache first (unless skip_cache is True)
+    cached_decision = None
+    is_cached = False
+    if not skip_cache:
+        cached_decision = output_manager.is_cached(paper.doi)
+        is_cached = cached_decision is not None
     
     if is_cached:
         # Get cached data
@@ -302,7 +307,7 @@ def load_dois_from_input(input_value: Optional[str]) -> list[str]:
         return [d for d in dois if d]  # Remove empty strings
 
 
-def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = None, max_papers: Optional[int] = None) -> int:
+def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = None, max_papers: Optional[int] = None, skip_cache: bool = False) -> int:
     """
     Main execution function.
     
@@ -310,6 +315,7 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
         config_path: Path to config.yaml file (defaults to package's config.yaml)
         interests_file: Path to interests.txt file (defaults to package's interests.txt if not in config)
         max_papers: Maximum number of papers to fetch (overrides config if provided)
+        skip_cache: If True, skip cache check and reprocess all papers even if cached
     
     Returns:
         Exit code (0 for success, 1 for error)
@@ -323,8 +329,16 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
     
     # Use CLI-provided max_papers if given, otherwise use config value
     max_papers_to_use = max_papers if max_papers is not None else config.arxiv.max_papers
-    fetcher.max_papers = max_papers_to_use
     relevance_threshold = config.relevance_threshold
+    
+    # When max_papers is set, we want to process that many NEW papers (not cached)
+    # So we fetch with a higher limit to ensure we have enough papers to process
+    # Use a multiplier (5x) to account for cached papers and non-relevant papers
+    if max_papers_to_use and not skip_cache:
+        fetch_limit = max_papers_to_use * 5  # Fetch 5x to account for cache hits and non-relevant
+        fetcher.max_papers = fetch_limit
+    else:
+        fetcher.max_papers = max_papers_to_use
     
     print("=" * 60)
     print("Archeion Now - Arxiv Paper Processing")
@@ -341,7 +355,13 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
     print(f"Output directory: {config.output.output_dir}")
     print(f"Arxiv categories: {', '.join(config.arxiv.categories)}")
     print(f"Days back: {config.arxiv.days_back}")
-    print(f"Max papers: {max_papers_to_use if max_papers_to_use else 'unlimited'}")
+    if max_papers_to_use:
+        if skip_cache:
+            print(f"Max papers: {max_papers_to_use} (re-run mode, will process all)")
+        else:
+            print(f"Max papers: {max_papers_to_use} (will process {max_papers_to_use} NEW papers, cached papers don't count)")
+    else:
+        print(f"Max papers: unlimited")
     print(f"Relevance threshold: {relevance_threshold}")
     print(f"LLM Provider: {config.llm.provider} ({config.llm.model})")
     print("=" * 60)
@@ -364,17 +384,39 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
     relevant_papers = []
     summaries = []
     paper_metadatas = []
+    processed_papers = []  # Track all papers we've processed
+    new_papers_processed = 0  # Count only newly processed papers (not cached)
     
     print("Processing papers...")
     print("-" * 60)
     
     # Load cache and show stats
-    cached_count = sum(1 for p in papers if output_manager.is_cached(p.doi) is not None)
-    if cached_count > 0:
-        print(f"Found {cached_count} papers with cached assessments")
+    if not skip_cache:
+        cached_count = sum(1 for p in papers if output_manager.is_cached(p.doi) is not None)
+        if cached_count > 0:
+            print(f"Found {cached_count} papers with cached assessments (these won't count toward max_papers)")
+    else:
+        print("Re-run mode: Skipping cache, will reprocess all papers")
     print()
     
-    for paper in tqdm(papers, desc="Processing papers"):
+    # Track which papers we've already seen (to avoid duplicates if we fetch more)
+    seen_dois = set()
+    
+    # Process papers until we've processed max_papers new papers (if limit is set)
+    paper_index = 0
+    while paper_index < len(papers):
+        paper = papers[paper_index]
+        
+        # Skip if we've already processed this paper
+        if paper.doi and paper.doi in seen_dois:
+            paper_index += 1
+            continue
+        
+        # Check if we've reached the limit for new papers
+        if max_papers_to_use and not skip_cache and new_papers_processed >= max_papers_to_use:
+            print(f"\nReached limit of {max_papers_to_use} newly processed papers. Stopping.")
+            break
+        
         result = process_single_paper(
             paper=paper,
             agent=agent,
@@ -383,13 +425,25 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
             config=config,
             relevance_threshold=relevance_threshold,
             save_summary=True,
-            verbose=True
+            verbose=True,
+            skip_cache=skip_cache
         )
+        
+        processed_papers.append(paper)
+        if paper.doi:
+            seen_dois.add(paper.doi)
+        
+        # Count this as a new paper if it wasn't cached (or if we're in skip_cache mode)
+        if not result.is_cached or skip_cache:
+            new_papers_processed += 1
         
         # Check if paper is relevant based on threshold
         if result.final_decision.relevance >= relevance_threshold:
             cache_prefix = "[Cache] " if result.is_cached else ""
-            print(f"\n{cache_prefix}✓ Relevant: {paper.title[:80]}...")
+            progress_info = ""
+            if max_papers_to_use and not skip_cache:
+                progress_info = f" [New: {new_papers_processed}/{max_papers_to_use}]"
+            print(f"\n{cache_prefix}✓ Relevant: {paper.title[:80]}...{progress_info}")
             print(f"  Relevance: {result.initial_decision.relevance:.2f}")
             if not result.is_cached:
                 print(f"  Confidence: {result.initial_decision.confidence:.2f}")
@@ -423,15 +477,23 @@ def main(config_path: Optional[Path] = None, interests_file: Optional[Path] = No
                 relevant_papers.append(paper)
         else:
             cache_prefix = "[Cache] " if result.is_cached else ""
-            print(f"\n{cache_prefix}✗ Not relevant: {paper.title[:80]}...")
+            progress_info = ""
+            if max_papers_to_use and not skip_cache:
+                progress_info = f" [New: {new_papers_processed}/{max_papers_to_use}]"
+            print(f"\n{cache_prefix}✗ Not relevant: {paper.title[:80]}...{progress_info}")
             print(f"  Relevance: {result.final_decision.relevance:.2f} (threshold: {relevance_threshold})")
             if result.final_decision.reasoning:
                 print(f"  Reason: {result.final_decision.reasoning[:100]}...")
+        
+        paper_index += 1
     
     print()
     print("-" * 60)
     print(f"Processing complete!")
-    print(f"Relevant papers: {len(relevant_papers)} / {len(papers)}")
+    print(f"Total papers examined: {len(processed_papers)}")
+    if max_papers_to_use and not skip_cache:
+        print(f"New papers processed: {new_papers_processed} / {max_papers_to_use}")
+    print(f"Relevant papers: {len(relevant_papers)} / {len(processed_papers)}")
     print()
     
     # Create index

@@ -132,6 +132,9 @@
         <button onclick="startProcessing()" class="btn" id="run-btn" style="background: white; color: #667eea;">
             Start Processing
         </button>
+        <button onclick="startRerun()" class="btn" id="rerun-btn" style="background: rgba(255, 255, 255, 0.9); color: #764ba2;">
+            Re-run (Overwrite Cache)
+        </button>
         <button onclick="killProcessing()" class="btn kill-btn" id="kill-btn" style="display: none;">
             Kill Process
         </button>
@@ -175,6 +178,7 @@ let accumulatedProgress = [];
 async function startProcessing() {
     const maxPapers = document.getElementById('max-papers').value;
     const runBtn = document.getElementById('run-btn');
+    const rerunBtn = document.getElementById('rerun-btn');
     const statusDiv = document.getElementById('job-status');
     const messageDiv = document.getElementById('job-message');
     const progressOutput = document.getElementById('progress-output');
@@ -185,6 +189,7 @@ async function startProcessing() {
     accumulatedProgress = [];
     
     runBtn.disabled = true;
+    rerunBtn.disabled = true;
     runBtn.textContent = 'Starting...';
     
     try {
@@ -206,12 +211,65 @@ async function startProcessing() {
         } else {
             messageDiv.textContent = `Error: ${data.error}`;
             runBtn.disabled = false;
+            rerunBtn.disabled = false;
             runBtn.textContent = 'Start Processing';
         }
     } catch (error) {
         messageDiv.textContent = `Error: ${error.message}`;
         runBtn.disabled = false;
+        rerunBtn.disabled = false;
         runBtn.textContent = 'Start Processing';
+    }
+}
+
+async function startRerun() {
+    if (!confirm('Re-run will reprocess all papers and overwrite existing cache entries. Continue?')) {
+        return;
+    }
+    
+    const maxPapers = document.getElementById('max-papers').value;
+    const runBtn = document.getElementById('run-btn');
+    const rerunBtn = document.getElementById('rerun-btn');
+    const statusDiv = document.getElementById('job-status');
+    const messageDiv = document.getElementById('job-message');
+    const progressOutput = document.getElementById('progress-output');
+    
+    // Clear previous progress
+    progressOutput.innerHTML = '';
+    progressOutput.classList.remove('active');
+    accumulatedProgress = [];
+    
+    runBtn.disabled = true;
+    rerunBtn.disabled = true;
+    rerunBtn.textContent = 'Starting re-run...';
+    
+    try {
+        const response = await fetch('/api/rerun', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                max_papers: maxPapers || null
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            messageDiv.textContent = 'Re-run processing started (cache will be overwritten)...';
+            startStatusPolling();
+        } else {
+            messageDiv.textContent = `Error: ${data.error}`;
+            runBtn.disabled = false;
+            rerunBtn.disabled = false;
+            rerunBtn.textContent = 'Re-run (Overwrite Cache)';
+        }
+    } catch (error) {
+        messageDiv.textContent = `Error: ${error.message}`;
+        runBtn.disabled = false;
+        rerunBtn.disabled = false;
+        rerunBtn.textContent = 'Re-run (Overwrite Cache)';
     }
 }
 
@@ -223,6 +281,7 @@ async function checkStatus() {
         const statusDiv = document.getElementById('job-status');
         const messageDiv = document.getElementById('job-message');
         const runBtn = document.getElementById('run-btn');
+        const rerunBtn = document.getElementById('rerun-btn');
         
         // Update status indicator
         statusDiv.className = 'status-indicator';
@@ -233,7 +292,9 @@ async function checkStatus() {
             statusDiv.className += ' status-running';
             statusDiv.textContent = 'Running';
             runBtn.disabled = true;
+            rerunBtn.disabled = true;
             runBtn.textContent = 'Processing...';
+            rerunBtn.textContent = 'Re-run (Overwrite Cache)';
             killBtn.style.display = 'inline-block';
             progressOutput.classList.add('active');
         } else {
@@ -242,7 +303,9 @@ async function checkStatus() {
                 statusDiv.className += ' status-completed';
                 statusDiv.textContent = 'Completed';
                 runBtn.disabled = false;
+                rerunBtn.disabled = false;
                 runBtn.textContent = 'Start Processing';
+                rerunBtn.textContent = 'Re-run (Overwrite Cache)';
                 stopStatusPolling();
                 // Keep progress visible for a bit, then hide
                 setTimeout(() => {
@@ -252,19 +315,25 @@ async function checkStatus() {
                 statusDiv.className += ' status-error';
                 statusDiv.textContent = 'Error';
                 runBtn.disabled = false;
+                rerunBtn.disabled = false;
                 runBtn.textContent = 'Start Processing';
+                rerunBtn.textContent = 'Re-run (Overwrite Cache)';
                 stopStatusPolling();
             } else if (data.status === 'killed') {
                 statusDiv.className += ' status-killed';
                 statusDiv.textContent = 'Killed';
                 runBtn.disabled = false;
+                rerunBtn.disabled = false;
                 runBtn.textContent = 'Start Processing';
+                rerunBtn.textContent = 'Re-run (Overwrite Cache)';
                 stopStatusPolling();
             } else {
                 statusDiv.className += ' status-idle';
                 statusDiv.textContent = 'Idle';
                 runBtn.disabled = false;
+                rerunBtn.disabled = false;
                 runBtn.textContent = 'Start Processing';
+                rerunBtn.textContent = 'Re-run (Overwrite Cache)';
                 progressOutput.classList.remove('active');
             }
         }
