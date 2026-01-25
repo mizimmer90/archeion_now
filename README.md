@@ -199,6 +199,46 @@ See [ArXiv category taxonomy](https://arxiv.org/category_taxonomy) for full list
 4. **Category selection**: Choose relevant categories to reduce processing time
 5. **PDF processing**: Enable PDF processing only if you need full paper analysis (slower, more expensive)
 
+## Web UI
+
+Archeion Now includes a web-based user interface for managing your interests and browsing processed papers.
+
+### Starting the Web UI
+
+If installed as a package:
+```bash
+archeion_now_ui
+```
+
+Or run directly:
+```bash
+python web_ui.py
+```
+
+The UI will start on `http://127.0.0.1:5000` by default. You can customize the host and port:
+```bash
+archeion_now_ui --host 0.0.0.0 --port 8080
+```
+
+### First-Time Setup
+
+When you first access the web UI, you'll be prompted to configure:
+1. **Papers Output Directory**: Where relevant papers and summaries are saved
+2. **Interests File Location**: Path to your `interests.txt` file (can be anywhere on your system)
+
+This configuration is saved to `~/.archeion_now_ui_config.json` and persists across sessions.
+
+### Web UI Features
+
+- **Dashboard**: Overview of your papers and quick access to other sections
+- **Interests Editor**: View and edit your `interests.txt` file directly in the browser
+- **Papers Browser**: Browse all processed papers, search by title/category, and view full summaries
+
+The web UI provides a convenient way to:
+- Update your research interests without editing files manually
+- Browse and search through your processed papers
+- View detailed summaries in a clean, readable format
+
 ## Customization
 
 The codebase is modular and easy to customize:
@@ -208,6 +248,7 @@ The codebase is modular and easy to customize:
 - `pdf_reader.py`: PDF text extraction
 - `output_manager.py`: Output organization
 - `main.py`: Main orchestration
+- `web_ui.py`: Web interface
 
 ## License
 

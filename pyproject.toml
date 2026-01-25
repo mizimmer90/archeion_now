@@ -34,6 +34,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
     "tqdm>=4.66.0",
+    "flask>=3.0.0",
 ]
 
 [project.optional-dependencies]
@@ -45,6 +46,7 @@ dev = [
 
 [project.scripts]
 archeion_now = "main:cli_main"
+archeion_now_ui = "web_ui:main"
 
 [tool.setuptools]
 py-modules = [
@@ -54,8 +56,9 @@ py-modules = [
     "pdf_reader",
     "output_manager",
     "main",
+    "web_ui",
 ]
 
 [tool.setuptools.package-data]
-"" = ["config.yaml", "interests.txt"]
+"*" = ["config.yaml", "interests.txt", "templates/*.html"]
 

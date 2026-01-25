@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Archeion Now{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 30px; color: #333;">Dashboard</h2>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px;">
+    <div class="card">
+        <h3 style="margin-bottom: 10px; color: #667eea;">📄 Papers</h3>
+        <p style="font-size: 32px; font-weight: bold; color: #333;">{{ paper_count }}</p>
+        <p style="color: #666; margin-top: 5px;">Total papers processed</p>
+    </div>
+</div>
+
+<div class="card">
+    <h2 style="margin-bottom: 15px;">Quick Actions</h2>
+    <div style="display: flex; gap: 15px; flex-wrap: wrap;">
+        <a href="{{ url_for('interests_page') }}" class="btn">Edit Interests</a>
+        <a href="{{ url_for('papers_page') }}" class="btn">Browse Papers</a>
+    </div>
+</div>
+
+<div class="card">
+    <h2 style="margin-bottom: 15px;">Getting Started</h2>
+    <p style="color: #666; line-height: 1.6; margin-bottom: 15px;">
+        To start processing papers, use the command line interface:
+    </p>
+    <pre style="background: #f0f0f0; padding: 15px; border-radius: 6px; overflow-x: auto; font-family: 'Courier New', monospace; font-size: 14px;">archeion_now</pre>
+    <p style="color: #666; line-height: 1.6; margin-top: 15px;">
+        The processed papers will appear in the Papers section above.
+    </p>
+</div>
+{% endblock %}
+

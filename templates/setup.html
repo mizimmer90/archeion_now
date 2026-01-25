@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Setup - Archeion Now{% endblock %}
+
+{% block content %}
+<div style="max-width: 600px; margin: 0 auto;">
+    <h2 style="margin-bottom: 30px; color: #333;">Initial Setup</h2>
+    <p style="margin-bottom: 30px; color: #666; line-height: 1.6;">
+        Welcome to Archeion Now! Let's configure your setup. You'll need to specify:
+    </p>
+    
+    {% if error %}
+    <div class="error">{{ error }}</div>
+    {% endif %}
+    
+    <form method="POST" action="{{ url_for('setup') }}">
+        <div class="form-group">
+            <label for="papers_dir">Papers Output Directory</label>
+            <input 
+                type="text" 
+                id="papers_dir" 
+                name="papers_dir" 
+                placeholder="~/Documents/papers or /path/to/papers"
+                value="{{ request.form.get('papers_dir', '') }}"
+                required
+            >
+            <small style="color: #666; display: block; margin-top: 5px;">
+                Directory where relevant papers and summaries will be saved
+            </small>
+        </div>
+        
+        <div class="form-group">
+            <label for="interests_file">Interests File Location</label>
+            <input 
+                type="text" 
+                id="interests_file" 
+                name="interests_file" 
+                placeholder="~/Documents/interests.txt or /path/to/interests.txt"
+                value="{{ request.form.get('interests_file', '') }}"
+                required
+            >
+            <small style="color: #666; display: block; margin-top: 5px;">
+                Path to your interests.txt file (can be anywhere on your system)
+            </small>
+        </div>
+        
+        <button type="submit" class="btn">Save Configuration</button>
+    </form>
+</div>
+{% endblock %}
+

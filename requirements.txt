@@ -13,3 +13,6 @@ pydantic>=2.0.0
 pyyaml>=6.0
 tqdm>=4.66.0
 
+# Web UI
+flask>=3.0.0
+
